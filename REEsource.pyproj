@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>0a885820-d661-47dc-9a5a-8480c1aee26b</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>REEsource.py</StartupFile>
+    <StartupFile>ingest_usgs.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -21,13 +21,16 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="ingest_usgs.py" />
     <Compile Include="REEsource.py" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include=".streamlit\" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include=".env" />
     <Content Include=".streamlit\config.toml" />
+    <Content Include="dashboard.py" />
     <Content Include="LICENSE" />
     <Content Include="readme.md" />
   </ItemGroup>
