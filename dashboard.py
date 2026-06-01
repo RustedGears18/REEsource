@@ -4,6 +4,7 @@ from google.cloud import firestore
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
+import json # Add this import to the top of your file
 from dotenv import load_dotenv
 
 # Load GCP credentials from your secure .env file
@@ -33,25 +34,52 @@ else:
 @st.cache_data(ttl=3600)
 def fetch_firestore_data(collection_name='colorado_critical_minerals'):
     """Pulls all parent documents from the specified Firestore collection."""
-    db = firestore.Client()
-    collection_ref = db.collection(collection_name)
-    docs = collection_ref.stream()
     
-    data = []
-    for doc in docs:
-        doc_dict = doc.to_dict()
+    # 1. Hybrid Authentication Block
+    try:
+        if "gcp_service_account" in st.secrets:
+            # Running Live on Streamlit Cloud: Parse credentials from secure UI secrets
+            creds_dict = json.loads(st.secrets["gcp_service_account"])
+            db = firestore.Client.from_service_account_info(creds_dict)
+        else:
+            # Running Locally: Explicitly pass the path from your local .env file
+            # Make sure your .env has: GOOGLE_APPLICATION_CREDENTIALS="path/to/your/key.json"
+            key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            if key_path:
+                db = firestore.Client.from_service_account_json(key_path)
+            else:
+                # Fallback to default discovery if path isn't explicit
+                db = firestore.Client()
+    except Exception as auth_err:
+        st.error(f"Authentication Setup Failed: {auth_err}")
+        return pd.DataFrame()
+
+    # 2. Data Streaming Block (Remains the same)
+    try:
+        collection_ref = db.collection(collection_name)
+        docs = collection_ref.stream()
         
-        if 'location' in doc_dict and doc_dict['location']:
-            doc_dict['latitude'] = doc_dict['location'].get('latitude')
-            doc_dict['longitude'] = doc_dict['location'].get('longitude')
+        data = []
+        for doc in docs:
+            doc_dict = doc.to_dict()
+            if 'location' in doc_dict and doc_dict['location']:
+                doc_dict['latitude'] = doc_dict['location'].get('latitude')
+                doc_dict['longitude'] = doc_dict['location'].get('longitude')
+                
+            if 'primary_commodities' in doc_dict:
+                doc_dict['commodities_str'] = ", ".join(doc_dict['primary_commodities'])
+                
+            data.append(doc_dict)
             
-        if 'primary_commodities' in doc_dict:
-            doc_dict['commodities_str'] = ", ".join(doc_dict['primary_commodities'])
+        if not data:
+            return pd.DataFrame()
             
-        data.append(doc_dict)
+        df = pd.DataFrame(data)
+        return df.dropna(subset=['latitude', 'longitude'])
         
-    df = pd.DataFrame(data)
-    return df.dropna(subset=['latitude', 'longitude'])
+    except Exception as e:
+        st.error(f"Firestore Query Error: {e}")
+        return pd.DataFrame()
 
 def main():
     st.title("REEsource 2026: Colorado Critical Mineral Feedstocks")
