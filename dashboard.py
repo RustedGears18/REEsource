@@ -244,7 +244,7 @@ def main():
     
     folium.LayerControl().add_to(m)
 
-    for _, row in filtered_df.iterrows():
+for _, row in filtered_df.iterrows():
         sides, rot = get_mrds_symbology(row.get('operational_category'))
         summary = row.get('feedstock_summary', 'No summary available.')
         
@@ -257,13 +257,15 @@ def main():
             location=[row['latitude'], row['longitude']],
             number_of_sides=sides,
             rotation=rot,
-            radius=7 if sides < 30 else 5, 
+            radius=7 if sides < 30 else 5.5, 
             popup=folium.Popup(tooltip_text, max_width=350),
             tooltip=row.get('deposit_name', 'Unknown'),
-            color="#3186cc",
+            color="#1565c0",      # Added a slightly darker blue border for crisp contrast
+            weight=1.5,           # Border thickness
             fill=True,
-            fill_color="#3186cc",
-            fill_opacity=0.7
+            fill_color="#3186cc", 
+            fill_opacity=1.0,     # <--- Cranked to 100% solid opacity
+            opacity=1.0           # <--- 100% solid border
         ).add_to(m)
 
     # --- RENDER MAP ---
