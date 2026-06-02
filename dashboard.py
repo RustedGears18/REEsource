@@ -30,171 +30,170 @@ else:
 def generate_healing_link(row):
     """
     Returns the official USGS link if available. 
-    Otherwise, utilizes the exact coordinates to drop a Google Maps pin, 
-    guaranteeing a valid locational result.
+    Otherwise, utilizes the exact coordinates to drop a Google Maps pin.
     """
     official_link = row.get('source_link')
     if pd.notna(official_link) and str(official_link).startswith('http'):
         return official_link
     
-    # 1. Primary Fallback: Guaranteed Geospatial Pin
     lat = row.get('latitude')
     lon = row.get('longitude')
     
     if pd.notna(lat) and pd.notna(lon):
-        return f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
-        
-    # 2. Failsafe: Broad Google Search intent (bypasses Mindat's strict string rules)
-    deposit = str(row.get('deposit_name', '')).replace('_', ' ')
-    state = str(row.get('state', ''))
-    query = urllib.parse.quote(f"{deposit} mine {state}")
-    return f"https://www.google.com/search?q={query}"
+        return f"http://googleusercontent.com/maps.google.com/{lat},{lon}"
+    return "#"
 
-@st.cache_data(ttl=3600)
-def fetch_firestore_data(collection_name='usmin_critical_minerals'):
-    try:
-        if "gcp_service_account" in st.secrets:
-            creds_dict = json.loads(st.secrets["gcp_service_account"])
-            db = firestore.Client.from_service_account_info(creds_dict)
-        else:
-            key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-            if key_path:
-                db = firestore.Client.from_service_account_json(key_path)
-            else:
-                db = firestore.Client()
-    except Exception as auth_err:
-        st.error(f"Authentication Setup Failed: {auth_err}")
-        return pd.DataFrame()
-
-    try:
-        collection_ref = db.collection(collection_name)
-        docs = collection_ref.stream()
-        
-        data = []
-        for doc in docs:
-            doc_dict = doc.to_dict()
-            if 'location' in doc_dict and doc_dict['location']:
-                doc_dict['latitude'] = doc_dict['location'].get('latitude')
-                doc_dict['longitude'] = doc_dict['location'].get('longitude')
-                
-            if 'primary_commodities' in doc_dict:
-                doc_dict['commodities_str'] = ", ".join(doc_dict['primary_commodities'])
-            
-            doc_dict['feedstock_origin'] = doc_dict.get('feedstock_origin', 'Primary Geologic')
-                
-            data.append(doc_dict)
-            
-        if not data:
-            return pd.DataFrame()
-            
-        return pd.DataFrame(data).dropna(subset=['latitude', 'longitude'])
-        
-    except Exception as e:
-        st.error(f"Firestore Query Error: {e}")
-        return pd.DataFrame()
-
-def get_marker_color(origin_type):
-    if origin_type == "Primary Geologic":
-        return "#3186cc" # Blue
-    elif origin_type == "Secondary Mine Waste":
-        return "#2ecc71" # Green
-    elif origin_type == "Coal Byproducts":
-        return "#ff7800" # Orange
-    return "#95a5a6" # Gray
-
-def main():
-    st.title("REEsource: Feedstock Intelligence")
-    st.markdown("Interactive geospatial mapping of uncharacterized critical mineral and REE feedstocks across the United States.")
-
-    with st.spinner("Connecting to Google Cloud Firestore..."):
-        df = fetch_firestore_data()
-
-    if df.empty:
-        st.error("No coordinate data found in the Firestore database.")
-        return
-
-    df['reference_link'] = df.apply(generate_healing_link, axis=1)
-
-    # --- SIDEBAR FILTERS ---
-    filtered_df = df.copy()
-
-    st.sidebar.header("Feedstock Classification")
-    available_origins = sorted([o for o in filtered_df['feedstock_origin'].dropna().unique().tolist()])
-    selected_origins = st.sidebar.multiselect(
-        "Select Source Origin", 
-        options=available_origins, 
-        default=available_origins
-    )
-    if selected_origins:
-        filtered_df = filtered_df[filtered_df['feedstock_origin'].isin(selected_origins)]
-
-    st.sidebar.header("Location Filters")
-    available_states = ['All US'] + sorted([s for s in filtered_df['state'].dropna().unique().tolist() if s != 'None'])
-    selected_state = st.sidebar.selectbox("Select State", available_states)
-
-    if selected_state != 'All US':
-        filtered_df = filtered_df[filtered_df['state'] == selected_state]
-
-    st.sidebar.header("Operational Filters")
-    categories = ['All'] + sorted(filtered_df['operational_category'].dropna().unique().tolist())
-    selected_category = st.sidebar.selectbox("Operational Category", categories)
-
-    if selected_category != 'All':
-        filtered_df = filtered_df[filtered_df['operational_category'] == selected_category]
-
-    st.sidebar.metric(label="Target Feedstock Sites", value=len(filtered_df))
-
-    # --- MAP RENDERING ---
-    if not filtered_df.empty:
-        map_center = [filtered_df['latitude'].mean(), filtered_df['longitude'].mean()]
-        zoom_level = 6 if selected_state != 'All US' else 4
-    else:
-        map_center = [39.8283, -98.5795]
-        zoom_level = 4
-
-    m = folium.Map(location=map_center, zoom_start=zoom_level, tiles="CartoDB positron")
-
-    for _, row in filtered_df.iterrows():
-        origin = row.get('feedstock_origin', 'Unknown')
-        marker_color = get_marker_color(origin)
-        
-        tooltip_text = f"<b>{row.get('deposit_name', 'Unknown')}</b><br>" \
-                       f"Classification: {origin}<br>" \
-                       f"State: {row.get('state', 'Unknown')}<br>" \
-                       f"Legacy Commodities: {row.get('commodities_str', '')}"
-                       
-        folium.CircleMarker(
-            location=[row['latitude'], row['longitude']],
-            radius=6,
-            popup=folium.Popup(tooltip_text, max_width=300),
-            tooltip=row.get('deposit_name', 'Unknown'),
-            color=marker_color,
-            fill=True,
-            fill_color=marker_color
-        ).add_to(m)
-
-    # --- UI LAYOUT ---
-    col1, col2 = st.columns([2, 1])
+# --- DATA FETCHING ---
+@st.cache_data(ttl=600)
+def fetch_data():
+    db = firestore.Client()
+    docs = db.collection("usmin_critical_minerals").stream()
+    data = []
     
-    with col1:
-        st_data = st_folium(m, width=700, height=500)
+    for doc in docs:
+        d = doc.to_dict()
         
-    with col2:
-        st.subheader("Site Details")
+        # Capture the Doc ID and AI parameters for interactive UI routing
+        d['doc_id'] = doc.id
+        d['executive_summary'] = d.get('executive_summary', None)
+        
+        data.append(d)
+        
+    df = pd.DataFrame(data)
+    
+    # Drop records missing critical geospatial data
+    if 'latitude' in df.columns and 'longitude' in df.columns:
+        df = df.dropna(subset=['latitude', 'longitude'])
+    
+    return df
+
+def fetch_sources(doc_id):
+    """Dynamically fetches harvested URIs for a specific record."""
+    db = firestore.Client()
+    sources_ref = db.collection("usmin_critical_minerals").document(doc_id).collection("unstructured_assets").stream()
+    return [s.to_dict() for s in sources_ref]
+
+def get_marker_color(origin):
+    if origin == 'Primary Geologic':
+        return 'blue'
+    elif origin == 'Secondary Mine Waste':
+        return 'orange'
+    return 'gray'
+
+# --- MAIN APP LOGIC ---
+df = fetch_data()
+
+# Apply reference links
+df['reference_link'] = df.apply(generate_healing_link, axis=1)
+
+st.title("U.S. Critical Minerals & Rare Earths")
+
+# --- SIDEBAR FILTERS ---
+st.sidebar.subheader("Filter Data")
+
+states = sorted(df['state'].dropna().unique().tolist())
+selected_state = st.sidebar.selectbox("Select State", ["All"] + states)
+
+origins = sorted(df['feedstock_origin'].dropna().unique().tolist())
+selected_origin = st.sidebar.selectbox("Feedstock Origin", ["All"] + origins)
+
+filtered_df = df.copy()
+if selected_state != "All":
+    filtered_df = filtered_df[filtered_df['state'] == selected_state]
+if selected_origin != "All":
+    filtered_df = filtered_df[filtered_df['feedstock_origin'] == selected_origin]
+
+# --- BUILD FOLIUM MAP ---
+map_center = [39.8283, -98.5795] # Center of US
+if not filtered_df.empty:
+    map_center = [filtered_df['latitude'].mean(), filtered_df['longitude'].mean()]
+
+m = folium.Map(location=map_center, zoom_start=4, tiles="CartoDB positron")
+
+for _, row in filtered_df.iterrows():
+    origin = row.get('feedstock_origin', 'Unknown')
+    marker_color = get_marker_color(origin)
+    
+    tooltip_text = f"<b>{row.get('deposit_name', 'Unknown')}</b><br>" \
+                   f"Classification: {origin}<br>" \
+                   f"State: {row.get('state', 'Unknown')}<br>" \
+                   f"Legacy Commodities: {row.get('commodities_str', '')}"
+                   
+    folium.CircleMarker(
+        location=[row['latitude'], row['longitude']],
+        radius=6,
+        popup=folium.Popup(tooltip_text, max_width=300),
+        tooltip=row.get('deposit_name', 'Unknown'),
+        color=marker_color,
+        fill=True,
+        fill_color=marker_color
+    ).add_to(m)
+
+# --- UI LAYOUT ---
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    # Render map and return clicked object data
+    st_data = st_folium(m, width=700, height=600, returned_objects=["last_object_clicked"])
+    
+with col2:
+    st.subheader("Site Details")
+    
+    # 1. Check if a pin was clicked
+    if st_data and st_data.get("last_object_clicked"):
+        lat = st_data["last_object_clicked"]["lat"]
+        lon = st_data["last_object_clicked"]["lng"]
+        
+        # 2. Find matching record (using a small float tolerance rounding just in case)
+        match = filtered_df[
+            (filtered_df['latitude'].round(4) == round(lat, 4)) & 
+            (filtered_df['longitude'].round(4) == round(lon, 4))
+        ]
+        
+        if not match.empty:
+            site = match.iloc[0]
+            
+            # --- Dynamic Profile Render ---
+            st.markdown(f"### {site.get('deposit_name', 'Unknown Deposit')}")
+            st.caption(f"**Origin:** {site.get('feedstock_origin', 'Unknown Origin')} | **State:** {site.get('state', '')}")
+            
+            st.divider()
+            
+            # AI Executive Summary
+            st.markdown("#### Executive Summary")
+            if pd.notna(site.get('executive_summary')) and site.get('executive_summary'):
+                st.info(site['executive_summary'])
+            else:
+                st.warning("No summary available yet. Run backend harvester to generate.")
+            
+            # Subcollection Query for Sources
+            st.markdown("#### Discovered Sources")
+            sources = fetch_sources(site['doc_id'])
+            
+            if sources:
+                for s in sources:
+                    title = s.get('title', 'Target Link')
+                    url = s.get('source_url', '#')
+                    # Streamlit Markdown Bullet List
+                    st.markdown(f"- [{title}]({url})")
+            else:
+                st.write("No external sources harvested yet.")
+                
+        else:
+            st.write("Details could not be resolved. Please try another pin.")
+            
+    else:
+        # 3. Default State (Before any pin is clicked)
+        st.write("Click a map pin to load the AI-generated profile and source links.")
+        st.write("---")
         st.dataframe(
             filtered_df[['deposit_name', 'state', 'feedstock_origin', 'reference_link']],
             column_config={
                 "deposit_name": "Deposit",
                 "state": "State",
                 "feedstock_origin": "Origin",
-                "reference_link": st.column_config.LinkColumn(
-                    "Source / Location", 
-                    display_text=r"^(?:https?:\/\/(?:www\.)?)?(.{0,40})" 
-                )
+                "reference_link": st.column_config.LinkColumn("Source / Location")
             },
             hide_index=True,
             use_container_width=True
         )
-
-if __name__ == "__main__":
-    main()
