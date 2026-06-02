@@ -290,7 +290,7 @@ def main():
             "reference_link": st.column_config.LinkColumn("Source / Location", display_text=r"^(?:https?:\/\/(?:www\.)?)?(.{0,30})")
         },
         hide_index=True,
-        use_container_width=True
+        width="stretch" # <-- The modern standard
     )
 
 if __name__ == "__main__":
