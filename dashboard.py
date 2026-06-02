@@ -87,16 +87,13 @@ def generate_ai_profile(deposit_data):
     """Initializes the Client with explicit fallback checks for API vs Vertex configurations."""
     api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
     
-    # Check if we should initialize via standard API Key or fallback directly to Vertex via Service Account
     if api_key:
         client = genai.Client(api_key=api_key)
     else:
-        # If no explicit API key is found, try running through Vertex AI using the project key
         project_id = os.getenv("GCP_PROJECT_ID")
         if project_id:
             client = genai.Client(vertexai=True, project=project_id, location=os.getenv("GCP_LOCATION", "us-central1"))
         else:
-            # Absolute fallback initialization attempt
             client = genai.Client()
     
     prompt = f"""
@@ -155,7 +152,10 @@ def main():
     
     st.sidebar.header("Location Filters")
     available_states = ['All US'] + sorted([s for s in filtered_df['state'].dropna().unique().tolist() if s not in ['None', 'UNKNOWN']])
-    selected_state = st.sidebar.selectbox("Select State", available_states)
+    
+    # Check if Colorado is in the dataset to set as default index
+    default_state_index = available_states.index('COLORADO') if 'COLORADO' in available_states else 0
+    selected_state = st.sidebar.selectbox("Select State", available_states, index=default_state_index)
 
     if selected_state != 'All US':
         filtered_df = filtered_df[filtered_df['state'] == selected_state]
@@ -174,6 +174,17 @@ def main():
         filtered_df = filtered_df[filtered_df['production_size'] == selected_size]
 
     st.sidebar.metric(label="Visible Targets", value=len(filtered_df))
+
+    # --- ABOUT EXPANDER ---
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("ℹ️ About REEsource"):
+        st.markdown(
+            "**REEsource** was developed as a capstone project for the Master of Science "
+            "in Data Analytics program (IT Management specialization) at Colorado State University Global.\n\n"
+            "This application provides end-to-end data infrastructure to evaluate the viability of "
+            "critical mineral and Rare Earth Element (REE) feedstocks across the United States.\n\n"
+            "🔗 [View the Project on GitHub](https://github.com/RustedGears18/REEsource)"
+        )
 
     # --- DYNAMIC ZOOM LOGIC ---
     if target_deposit != 'None':
@@ -223,11 +234,10 @@ def main():
     # --- RENDER MAP ---
     st_data = st_folium(m, width=1200, height=500, returned_objects=["last_object_clicked_tooltip"])
         
-    # --- UI INTERMEDIATE CONTAINER: AI PROFILE (SHIFTS DIRECTLY BELOW MAP) ---
+    # --- UI INTERMEDIATE CONTAINER: AI PROFILE ---
     st.divider()
     st.subheader("AI Feedstock Profile Engine")
     
-    # Default selection setup to handle tooltips vs search drop-down selection
     selected_deposit = None
     if st_data and st_data.get('last_object_clicked_tooltip'):
         selected_deposit = st_data['last_object_clicked_tooltip']
@@ -243,17 +253,37 @@ def main():
             
             st.write(f"### Target View: **{selected_deposit}**")
             
-            # Subcollection dynamic retrieval
             subcol_ref = db.collection('mrds_feedstock_profiles').document(doc_id).collection('ai_profiles')
             existing_profiles = list(subcol_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(1).stream())
             
             if existing_profiles:
                 st.markdown(existing_profiles[0].to_dict().get('content'))
                 st.caption(f"Profile last pulled on: {existing_profiles[0].to_dict().get('created_at')}")
+                # Button Styling for Existing Profile (Light Green)
+                btn_color = "#81c784"
+                btn_text = "Refresh Generative Site Profile"
             else:
                 st.info("No detailed intelligence summary exists in the Firestore ledger for this deposit.")
+                # Button Styling for No Profile (Execution Green)
+                btn_color = "#2e7d32" 
+                btn_text = "Execute Generative Site Profile"
                 
-            if st.button("Execute / Refresh Generative Site Profile"):
+            # CSS Injection to override the specific Streamlit button color
+            st.markdown(f"""
+                <style>
+                div.stButton > button:first-child {{
+                    background-color: {btn_color};
+                    color: white;
+                    border: none;
+                }}
+                div.stButton > button:first-child:hover {{
+                    background-color: #1b5e20;
+                    color: white;
+                }}
+                </style>
+            """, unsafe_allow_html=True)
+                
+            if st.button(btn_text):
                 with st.spinner("Querying model and screening public datasets..."):
                     try:
                         new_profile_text = generate_ai_profile(target_data)
@@ -290,7 +320,7 @@ def main():
             "reference_link": st.column_config.LinkColumn("Source / Location", display_text=r"^(?:https?:\/\/(?:www\.)?)?(.{0,30})")
         },
         hide_index=True,
-        width="stretch" # <-- The modern standard
+        width="stretch"
     )
 
 if __name__ == "__main__":
