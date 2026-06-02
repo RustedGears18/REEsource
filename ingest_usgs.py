@@ -2,6 +2,9 @@ import os
 import re
 import requests
 import pandas as pd
+import geopandas as gpd
+import tempfile
+import zipfile
 from datetime import datetime
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -9,7 +12,10 @@ import logging
 from google.cloud import firestore
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
+
+# Configure standard logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def get_resilient_session():
@@ -25,100 +31,131 @@ def get_resilient_session():
     session.mount("http://", adapter)
     return session
 
-def resolve_sciencebase_id_from_catalog(session, search_query):
-    """Dynamically locates the ScienceBase ID via Data.gov using a specific query."""
-    search_url = "https://catalog.data.gov/search"
-    params = {'q': search_query, 'per_page': 1}
-    
+def get_sciencebase_target(item_id, session):
+    """
+    Queries ScienceBase and prioritizes downloading a raw CSV.
+    If none exists, it hunts for a Shapefile ZIP archive.
+    """
+    url = f"https://www.sciencebase.gov/catalog/item/{item_id}"
     try:
-        logging.info(f"Resolving dataset via Data.gov for: {search_query}...")
-        response = session.get(search_url, params=params, timeout=15)
+        resp = session.get(url, params={'format': 'json'}, timeout=30)
+        resp.raise_for_status()
+        payload = resp.json()
+        
+        last_updated = payload.get('provenance', {}).get('lastUpdated', datetime.now().isoformat())
+        files = payload.get('files', [])
+        
+        # 1. Hunt for a valid CSV (aggressively ignoring dictionaries and metadata)
+        csv_files = []
+        for f in files:
+            name = f.get('name', '').lower()
+            if name.endswith('.csv') and 'dict' not in name and 'meta' not in name:
+                csv_files.append(f)
+                
+        if csv_files:
+            target = max(csv_files, key=lambda x: x.get('size', 0))
+            return target.get('url'), last_updated, 'csv'
+            
+        # 2. Hunt for a Shapefile ZIP
+        shp_files = [f for f in files if 'shapefile' in f.get('name', '').lower() and f.get('name', '').lower().endswith('.zip')]
+        if shp_files:
+            target = max(shp_files, key=lambda x: x.get('size', 0))
+            return target.get('url'), last_updated, 'shapefile'
+            
+        return None, None, None
+    except Exception as e:
+        logging.error(f"ScienceBase lookup failed for {item_id}: {e}")
+        return None, None, None
+
+def check_if_update_needed(db, origin_type, federal_date):
+    """Checks the Firestore ETL state to prevent redundant runs."""
+    doc_id = re.sub(r'[^a-zA-Z0-9]', '_', origin_type).upper()
+    doc_ref = db.collection('etl_pipeline_state').document(doc_id)
+    
+    state_doc = doc_ref.get()
+    if state_doc.exists:
+        last_sync = state_doc.to_dict().get('federal_last_modified')
+        if last_sync == federal_date:
+            logging.info(f"[{origin_type}] Federal source unchanged. Skipping ingestion gracefully.")
+            return False, doc_ref
+            
+    return True, doc_ref
+
+def standardize_and_upsert(file_url, federal_date, file_type, session, origin_type, db, collection_name='usmin_critical_minerals'):
+    try:
+        logging.info(f"Downloading {file_type} data matrix for {origin_type}...")
+        response = session.get(file_url, timeout=60)
         response.raise_for_status()
         
-        results = response.json().get('results', [])
-        if not results:
-            logging.error(f"No matching dataset found for: {search_query}")
-            return None, None
+        # --- FORMAT PARSING ROUTINE ---
+        if file_type == 'csv':
+            from io import BytesIO
+            df = pd.read_csv(BytesIO(response.content), encoding='utf-8-sig', low_memory=False)
             
-        dataset = results[0]
-        dcat_meta = dataset.get('dcat', {})
-        modified_str = dcat_meta.get('modified', '')
-        
-        landing_page = dcat_meta.get('landingPage', '')
-        identifier = dcat_meta.get('identifier', '')
-        
-        match = re.search(r'([a-f0-9]{24})', str(landing_page) + " " + str(identifier))
-        if match:
-            sb_id = match.group(1)
-            logging.info(f"Target Confirmed. Active ScienceBase ID: {sb_id}")
-            return sb_id, modified_str
+        elif file_type == 'shapefile':
+            # Create a robust temporary directory context
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                zip_path = os.path.join(tmp_dir, "payload.zip")
+                
+                # Write the bytes to a physical zip file
+                with open(zip_path, 'wb') as f:
+                    f.write(response.content)
+                
+                # Extract everything into the temp folder
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(tmp_dir)
+                    
+                # Hunt through the extracted folder(s) for the actual .shp file
+                shp_file_path = None
+                for root, _, files in os.walk(tmp_dir):
+                    for file in files:
+                        if file.endswith('.shp'):
+                            shp_file_path = os.path.join(root, file)
+                            break
+                    if shp_file_path:
+                        break
+                
+                if not shp_file_path:
+                    logging.error("Extracted zip successfully, but no .shp file was found inside.")
+                    return False
+                    
+                # GeoPandas can now read a clean, local file path
+                gdf = gpd.read_file(shp_file_path)
+                df = pd.DataFrame(gdf.drop(columns='geometry'))
         else:
-            logging.error("Could not parse a valid 24-char hex ScienceBase ID.")
-            return None, None
+            logging.error(f"Unsupported file type: {file_type}")
+            return False
 
-    except Exception as e:
-        logging.error(f"Catalog resolution failed: {e}")
-        return None, None
-
-def get_sciencebase_csv_url(item_id, session):
-    sciencebase_url = f"https://www.sciencebase.gov/catalog/item/{item_id}"
-    params = {'format': 'json'}
-    
-    try:
-        response = session.get(sciencebase_url, params=params, timeout=30)
-        response.raise_for_status()
-        
-        files = response.json().get('files', [])
-        for file_obj in files:
-            filename = file_obj.get('name', '').lower()
-            content_type = file_obj.get('contentType', '').lower()
-            
-            if filename.endswith('.csv') or content_type == 'text/csv':
-                return file_obj.get('url')
-        return None
-    except Exception as e:
-        logging.error(f"ScienceBase lookup failed: {e}")
-        return None
-
-def standardize_and_upsert(csv_url, metadata_date, session, origin_type, collection_name='usmin_critical_minerals'):
-    """Stream downloads, standardizes disparate column names, and upserts to Firestore."""
-    try:
-        logging.info(f"Downloading raw dataset for {origin_type}...")
-        response = session.get(csv_url, stream=True, timeout=60)
-        response.raise_for_status()
-        
-        df = pd.read_csv(response.raw, encoding='utf-8-sig', low_memory=False)
         df.columns = df.columns.str.strip().str.lower()
         
         if df.empty:
             logging.warning(f"No tracking records found for {origin_type}.")
-            return
+            return False
 
-        db = firestore.Client()
         collection_ref = db.collection(collection_name)
         batch = db.batch()
         count = 0
 
+        lat_candidates = ['lat_wgs84', 'latitude', 'lat', 'y', 'lat_dd']
+        lon_candidates = ['long_wgs84', 'longitude', 'long', 'lon', 'x', 'lon_dd']
+        name_candidates = ['deposit', 'site_name', 'mine_name', 'name', 'site_na'] 
+        comms_candidates = ['critmin', 'commodities', 'commodity', 'commoditie']
+
         for _, row in df.iterrows():
             row_dict = {k: (v if not pd.isna(v) else None) for k, v in row.to_dict().items()}
             
-            # --- TRANSLATION LAYER: Normalize Column Variations ---
-            # Handles 'deposit' (Primary) vs 'site_name' or 'mine_name' (Waste)
-            deposit_name = row_dict.get('deposit') or row_dict.get('site_name') or row_dict.get('mine_name') or f"unknown_{count}"
+            lat = next((row_dict[k] for k in lat_candidates if row_dict.get(k) is not None), None)
+            lon = next((row_dict[k] for k in lon_candidates if row_dict.get(k) is not None), None)
             
-            lat = row_dict.get('lat_wgs84') or row_dict.get('latitude')
-            lon = row_dict.get('long_wgs84') or row_dict.get('longitude')
-            
+            if lat is None or lon is None:
+                continue 
+
+            deposit_name = next((row_dict[k] for k in name_candidates if row_dict.get(k) is not None), f"unknown_{count}")
             state = str(row_dict.get('state', '')).strip().upper() if row_dict.get('state') else None
             
-            # Combine commodities lists if they use different headers
-            raw_comms = str(row_dict.get('critmin', '')) + "," + str(row_dict.get('commodities', ''))
-            primary_commodities = [c.strip() for c in raw_comms.split(',') if c.strip() and c.strip() != 'None']
+            raw_comms = ",".join([str(row_dict.get(c, '')) for c in comms_candidates if row_dict.get(c)])
+            primary_commodities = list(set([c.strip().upper() for c in raw_comms.split(',') if c.strip() and c.strip().lower() != 'none']))
 
-            if not lat or not lon:
-                continue # Skip invalid coordinates
-
-            # Deterministic ID creation
             safe_name = re.sub(r'[^a-zA-Z0-9]', '_', str(deposit_name)).upper()
             safe_name = re.sub(r'_+', '_', safe_name).strip('_')
             doc_id = f"USMIN_{safe_name}"
@@ -126,7 +163,7 @@ def standardize_and_upsert(csv_url, metadata_date, session, origin_type, collect
             parent_doc = {
                 "site_id": doc_id,
                 "deposit_name": deposit_name,
-                "feedstock_origin": origin_type, # The new classification tag
+                "feedstock_origin": origin_type,
                 "state": state,
                 "location": {
                     "latitude": float(lat),
@@ -134,12 +171,12 @@ def standardize_and_upsert(csv_url, metadata_date, session, origin_type, collect
                 },
                 "geology": {
                     "mineral_system": row_dict.get('minsystem'),
-                    "deposit_type": row_dict.get('deptype') or row_dict.get('waste_type')
+                    "deposit_type": row_dict.get('deptype') or row_dict.get('waste_type') or row_dict.get('deposit_ty')
                 },
-                "operational_category": row_dict.get('depcat') or row_dict.get('status'),
+                "operational_category": row_dict.get('depcat') or row_dict.get('status') or row_dict.get('operation_'),
                 "primary_commodities": primary_commodities,
                 "source_link": row_dict.get('links') or row_dict.get('url'),
-                "last_updated_usmin": metadata_date or datetime.now().isoformat()
+                "last_updated_usmin": federal_date
             }
             
             batch.set(collection_ref.document(doc_id), parent_doc, merge=True)
@@ -154,32 +191,39 @@ def standardize_and_upsert(csv_url, metadata_date, session, origin_type, collect
             batch.commit()
             
         logging.info(f"Pipeline Complete. Upserted {count} records for {origin_type}.")
+        return True # Returns True on a successful execution
 
     except Exception as e:
         logging.error(f"ETL execution encountered an exception: {e}")
+        return False # Returns False so the state doc doesn't get improperly updated
 
 if __name__ == "__main__":
     http_session = get_resilient_session()
     
-    # 1. Ingest Traditional Primary Ores 
-    # Direct ScienceBase ID for "Critical mineral deposits of the United States"
-    primary_id = "6464de5bd34ec179a83d9e6c" 
-    logging.info(f"Targeting Primary Ores via direct ScienceBase ID: {primary_id}")
+    targets = [
+        {"origin": "Primary Geologic", "id": "6464de5bd34ec179a83d9e6c"},
+        {"origin": "Secondary Mine Waste", "id": "686317a5d4be025653d31f09"}
+    ]
     
-    primary_url = get_sciencebase_csv_url(primary_id, http_session)
-    if primary_url:
-        # Pushing the current timestamp as the metadata date since we bypassed the catalog search
-        standardize_and_upsert(primary_url, datetime.now().isoformat(), http_session, origin_type="Primary Geologic")
-    else:
-        logging.error("Failed to locate the Primary Geologic CSV attachment.")
+    db_client = firestore.Client()
+    
+    for target in targets:
+        logging.info(f"Checking target: {target['origin']} ({target['id']})")
+        
+        target_url, fed_date, file_type = get_sciencebase_target(target["id"], http_session)
+        
+        if not target_url:
+            logging.error(f"Could not resolve a valid data matrix for {target['origin']}.")
+            continue
             
-    # 2. Ingest Secondary Mine Waste / Tailings
-    # Direct ScienceBase ID for the newly formalized "National Mine Waste Inventory"
-    waste_id = "686317a5d4be025653d31f09"
-    logging.info(f"Targeting Mine Waste via direct ScienceBase ID: {waste_id}")
-    
-    waste_url = get_sciencebase_csv_url(waste_id, http_session)
-    if waste_url:
-        standardize_and_upsert(waste_url, datetime.now().isoformat(), http_session, origin_type="Secondary Mine Waste")
-    else:
-        logging.error("Failed to locate the Secondary Mine Waste CSV attachment.")
+        needs_update, state_doc_ref = check_if_update_needed(db_client, target["origin"], fed_date)
+        
+        if needs_update:
+            # Only update the state tracker if the ingestion function completely succeeds
+            success = standardize_and_upsert(target_url, fed_date, file_type, http_session, target["origin"], db_client)
+            
+            if success:
+                state_doc_ref.set({
+                    'federal_last_modified': fed_date, 
+                    'last_ingested_local': datetime.now().isoformat()
+                }, merge=True)

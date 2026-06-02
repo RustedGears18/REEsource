@@ -21,6 +21,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="diagnose_sciencebase.py" />
     <Compile Include="ingest_usgs.py" />
     <Compile Include="REEsource.py" />
   </ItemGroup>
