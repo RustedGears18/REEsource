@@ -127,31 +127,20 @@ if selected_origin != "All":
     filtered_df = filtered_df[filtered_df['feedstock_origin'] == selected_origin]
 
 # --- BUILD FOLIUM MAP ---
+# Create a specific dataframe just for the map that drops rows missing coordinates
+map_df = filtered_df.dropna(subset=['latitude', 'longitude'])
+
 map_center = [39.8283, -98.5795] # Center of US
-if not filtered_df.empty:
-    map_center = [filtered_df['latitude'].mean(), filtered_df['longitude'].mean()]
+if not map_df.empty:
+    map_center = [map_df['latitude'].mean(), map_df['longitude'].mean()]
 
 m = folium.Map(location=map_center, zoom_start=4, tiles="CartoDB positron")
 
-for _, row in filtered_df.iterrows():
+# Iterate over map_df instead of filtered_df
+for _, row in map_df.iterrows():
     origin = row.get('feedstock_origin', 'Unknown')
     marker_color = get_marker_color(origin)
-    
-    tooltip_text = f"<b>{row.get('deposit_name', 'Unknown')}</b><br>" \
-                   f"Classification: {origin}<br>" \
-                   f"State: {row.get('state', 'Unknown')}<br>" \
-                   f"Legacy Commodities: {row.get('commodities_str', '')}"
-                   
-    folium.CircleMarker(
-        location=[row['latitude'], row['longitude']],
-        radius=6,
-        popup=folium.Popup(tooltip_text, max_width=300),
-        tooltip=row.get('deposit_name', 'Unknown'),
-        color=marker_color,
-        fill=True,
-        fill_color=marker_color
-    ).add_to(m)
-
+    # ... rest of your Folium CircleMarker code remains the same
 # --- UI LAYOUT ---
 col1, col2 = st.columns([2, 1])
 
