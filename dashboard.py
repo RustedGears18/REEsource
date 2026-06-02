@@ -25,17 +25,40 @@ else:
     st.sidebar.title("REEsource")
     st.sidebar.divider()
 
-# Set of standard REE abbreviations and common USGS tags
-REE_KEYWORDS = {
-    'REE', 'RARE EARTH', 'SC', 'Y', 'LA', 'CE', 'PR', 'ND', 
-    'SM', 'EU', 'GD', 'TB', 'DY', 'HO', 'ER', 'TM', 'YB', 'LU'
+# --- REE FILTERING LOGIC ---
+
+# Exact symbols for precise matching (prevents 'Y' from accidentally matching inside 'PYRITE')
+REE_SYMBOLS = {
+    'SC', 'Y', 'LA', 'CE', 'PR', 'ND', 'SM', 'EU', 'GD', 
+    'TB', 'DY', 'HO', 'ER', 'TM', 'YB', 'LU'
 }
 
+# Broad keywords and fully spelled-out element names for fuzzy matching
+REE_TERMS = [
+    'REE', 'REO', 'REY', 'RARE EARTH', 'SCANDIUM', 'YTTRIUM', 
+    'LANTHANUM', 'CERIUM', 'PRASEODYMIUM', 'NEODYMIUM', 'PROMETHIUM', 
+    'SAMARIUM', 'EUROPIUM', 'GADOLINIUM', 'TERBIUM', 'DYSPROSIUM', 
+    'HOLMIUM', 'ERBIUM', 'THULIUM', 'YTTERBIUM', 'LUTETIUM'
+]
+
 def is_ree(commodities_list):
+    """Checks if any item in the commodities list matches an REE symbol or term."""
     if not isinstance(commodities_list, list):
         return False
-    upper_comms = [str(c).upper().strip() for c in commodities_list]
-    return any(item in REE_KEYWORDS for item in upper_comms)
+        
+    for comm in commodities_list:
+        comm_upper = str(comm).upper().strip()
+        
+        # 1. Check for an exact symbol match
+        if comm_upper in REE_SYMBOLS:
+            return True
+            
+        # 2. Check for substring matches of broader terms or full names
+        if any(term in comm_upper for term in REE_TERMS):
+            return True
+            
+    return False
+# ---------------------------
 
 def generate_healing_link(row):
     official_link = row.get('source_link')
