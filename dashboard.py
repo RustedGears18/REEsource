@@ -10,6 +10,7 @@ from streamlit_folium import st_folium
 from google.cloud import firestore
 from google.oauth2 import service_account
 from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 # Load GCP credentials (local fallback)
