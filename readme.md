@@ -24,22 +24,22 @@ To run this dashboard locally:
 1. Clone the repository:
    ```bash
    git clone [https://github.com/RustedGears18/REEsource.git](https://github.com/RustedGears18/REEsource.git)
-   cd REEsource```
+   cd REEsource
    
 2. Create the virtual environment
 Create and activate a virtual environment:
-```# bash
-python -m venv .venv```
-```# Windows
-.\.venv\Scripts\Activate.ps1```
-```# macOS/Linux
-source .venv/bin/activate```
+```bash
+python -m venv .venv
+```Windows
+.\.venv\Scripts\Activate.ps1
+```macOS/Linux
+source .venv/bin/activate
 
 3. Install the required dependencies
 Install the required dependencies:
 
 ```Bash
-pip install -r requirements.txt```
+pip install -r requirements.txt
 Set up your environment variables:
 
 Create a .env file in the root directory.
