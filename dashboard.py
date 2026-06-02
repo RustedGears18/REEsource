@@ -71,6 +71,12 @@ def fetch_data():
         d = doc.to_dict()
         d['doc_id'] = doc.id
         d['executive_summary'] = d.get('executive_summary', None)
+        
+        # --- THE FIX: Extract the nested coordinates ---
+        if 'location' in d and isinstance(d['location'], dict):
+            d['latitude'] = d['location'].get('latitude')
+            d['longitude'] = d['location'].get('longitude')
+            
         data.append(d)
         
     df = pd.DataFrame(data)
@@ -87,7 +93,6 @@ def fetch_data():
     df['latitude'] = pd.to_numeric(df['latitude'], errors='coerce')
     df['longitude'] = pd.to_numeric(df['longitude'], errors='coerce')
     
-    # WE REMOVED THE DROPNA HERE so all your data survives!
     return df
 
 def fetch_sources(doc_id):
