@@ -161,18 +161,25 @@ def standardize_and_upsert(csv_url, metadata_date, session, origin_type, collect
 if __name__ == "__main__":
     http_session = get_resilient_session()
     
-    # 1. Ingest Traditional Primary Ores
-    primary_query = '"Critical mineral deposits of the United States"'
-    primary_id, primary_date = resolve_sciencebase_id_from_catalog(http_session, primary_query)
-    if primary_id:
-        url = get_sciencebase_csv_url(primary_id, http_session)
-        if url:
-            standardize_and_upsert(url, primary_date, http_session, origin_type="Primary Geologic")
+    # 1. Ingest Traditional Primary Ores 
+    # Direct ScienceBase ID for "Critical mineral deposits of the United States"
+    primary_id = "6464de5bd34ec179a83d9e6c" 
+    logging.info(f"Targeting Primary Ores via direct ScienceBase ID: {primary_id}")
+    
+    primary_url = get_sciencebase_csv_url(primary_id, http_session)
+    if primary_url:
+        # Pushing the current timestamp as the metadata date since we bypassed the catalog search
+        standardize_and_upsert(primary_url, datetime.now().isoformat(), http_session, origin_type="Primary Geologic")
+    else:
+        logging.error("Failed to locate the Primary Geologic CSV attachment.")
             
     # 2. Ingest Secondary Mine Waste / Tailings
-    waste_query = '"USMIN Mine Waste"' # Or '"Mine waste and tailings"'
-    waste_id, waste_date = resolve_sciencebase_id_from_catalog(http_session, waste_query)
-    if waste_id:
-        url = get_sciencebase_csv_url(waste_id, http_session)
-        if url:
-            standardize_and_upsert(url, waste_date, http_session, origin_type="Secondary Mine Waste")
+    # Direct ScienceBase ID for the newly formalized "National Mine Waste Inventory"
+    waste_id = "686317a5d4be025653d31f09"
+    logging.info(f"Targeting Mine Waste via direct ScienceBase ID: {waste_id}")
+    
+    waste_url = get_sciencebase_csv_url(waste_id, http_session)
+    if waste_url:
+        standardize_and_upsert(waste_url, datetime.now().isoformat(), http_session, origin_type="Secondary Mine Waste")
+    else:
+        logging.error("Failed to locate the Secondary Mine Waste CSV attachment.")
