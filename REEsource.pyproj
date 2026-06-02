@@ -22,9 +22,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="ai_harvester.py" />
-    <Compile Include="diagnose_sciencebase.py" />
+    <Compile Include="ingest_mrds.py" />
     <Compile Include="ingest_usgs.py" />
-    <Compile Include="REEsource.py" />
     <Compile Include="test_harvester.py" />
   </ItemGroup>
   <ItemGroup>
