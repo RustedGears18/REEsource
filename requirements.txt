@@ -1,6 +1,5 @@
 streamlit
 pandas
-geopandas==0.14.3
 google-cloud-firestore
 google-genai
 folium
