@@ -215,7 +215,6 @@ def main():
         zoom_level = 12
     elif not filtered_df.empty:
         map_center = [filtered_df['latitude'].mean(), filtered_df['longitude'].mean()]
-        # Increased zoom level from 6 to 7 for a tighter state fit
         zoom_level = 7 if selected_state != 'All US' else 4
     else:
         map_center = [39.8283, -98.5795]
@@ -223,19 +222,19 @@ def main():
 
     m = folium.Map(location=map_center, zoom_start=zoom_level, tiles=None)
 
-    # 1. USGS Topo Layer (Mimics official MRDS graded map)
-    folium.TileLayer(
-        tiles='https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
-        attr='USGS The National Map',
-        name='USGS Topo (Default)',
-        control=True
-    ).add_to(m)
-
-    # 2. Esri Satellite Layer
+    # 1. Esri Satellite Layer (Default for high contrast with markers)
     folium.TileLayer(
         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attr='Esri',
-        name='Satellite Imagery',
+        name='Satellite Imagery (Default)',
+        control=True
+    ).add_to(m)
+
+    # 2. USGS Topo Layer
+    folium.TileLayer(
+        tiles='https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
+        attr='USGS The National Map',
+        name='USGS Topo',
         control=True
     ).add_to(m)
 
@@ -244,7 +243,7 @@ def main():
     
     folium.LayerControl().add_to(m)
 
-for _, row in filtered_df.iterrows():
+    for _, row in filtered_df.iterrows():
         sides, rot = get_mrds_symbology(row.get('operational_category'))
         summary = row.get('feedstock_summary', 'No summary available.')
         
@@ -260,12 +259,12 @@ for _, row in filtered_df.iterrows():
             radius=7 if sides < 30 else 5.5, 
             popup=folium.Popup(tooltip_text, max_width=350),
             tooltip=row.get('deposit_name', 'Unknown'),
-            color="#1565c0",      # Added a slightly darker blue border for crisp contrast
-            weight=1.5,           # Border thickness
+            color="#1565c0",      # Darker blue border for crisp contrast
+            weight=1.5,
             fill=True,
-            fill_color="#3186cc", 
-            fill_opacity=1.0,     # <--- Cranked to 100% solid opacity
-            opacity=1.0           # <--- 100% solid border
+            fill_color="#3186cc",
+            fill_opacity=1.0,     # 100% solid opacity
+            opacity=1.0           # 100% solid border
         ).add_to(m)
 
     # --- RENDER MAP ---
