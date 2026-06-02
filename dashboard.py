@@ -144,8 +144,6 @@ def generate_ai_profile(deposit_data):
         raw_text = raw_text.split("```", 1)[1].rsplit("```", 1)[0].strip()
         
     parsed_json = json.loads(raw_text)
-    
-    # Append the model used to track attribution
     parsed_json['model_used'] = target_model
     return parsed_json
 
@@ -217,20 +215,33 @@ def main():
         zoom_level = 12
     elif not filtered_df.empty:
         map_center = [filtered_df['latitude'].mean(), filtered_df['longitude'].mean()]
-        zoom_level = 6 if selected_state != 'All US' else 4
+        # Increased zoom level from 6 to 7 for a tighter state fit
+        zoom_level = 8 if selected_state != 'All US' else 4
     else:
         map_center = [39.8283, -98.5795]
         zoom_level = 4
 
     m = folium.Map(location=map_center, zoom_start=zoom_level, tiles=None)
 
+    # 1. USGS Topo Layer (Mimics official MRDS graded map)
+    folium.TileLayer(
+        tiles='https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
+        attr='USGS The National Map',
+        name='USGS Topo (Default)',
+        control=True
+    ).add_to(m)
+
+    # 2. Esri Satellite Layer
     folium.TileLayer(
         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attr='Esri',
-        name='Satellite (Default)',
+        name='Satellite Imagery',
         control=True
     ).add_to(m)
+
+    # 3. CartoDB Positron
     folium.TileLayer('CartoDB positron', name='Light Basemap', control=True).add_to(m)
+    
     folium.LayerControl().add_to(m)
 
     for _, row in filtered_df.iterrows():
@@ -283,15 +294,12 @@ def main():
             if existing_profiles:
                 profile_data = existing_profiles[0].to_dict()
                 
-                # Render the explicit REE Estimation Field
                 ree_estimate = profile_data.get('ree_estimate')
                 if ree_estimate:
                     st.info(f"🌍 **Estimated Viable REE Presence:**\n\n{ree_estimate}")
                     
-                # Render the 1000-word Profile
                 st.markdown(profile_data.get('content'))
                 
-                # Explicit LLM Attribution and Timestamp
                 model_used = profile_data.get('model_used', 'gemini-2.5-pro')
                 st.caption(f"✨ *This Geological Site Profile was compiled by Google {model_used} on {profile_data.get('created_at')}*")
                 
