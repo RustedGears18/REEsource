@@ -7,6 +7,7 @@ from streamlit_folium import st_folium
 import json 
 from dotenv import load_dotenv
 
+# Load GCP credentials
 load_dotenv()
 
 st.set_page_config(
@@ -25,42 +26,8 @@ else:
     st.sidebar.title("REEsource")
     st.sidebar.divider()
 
-# --- REE FILTERING LOGIC ---
-
-# Exact symbols for precise matching (prevents 'Y' from accidentally matching inside 'PYRITE')
-REE_SYMBOLS = {
-    'SC', 'Y', 'LA', 'CE', 'PR', 'ND', 'SM', 'EU', 'GD', 
-    'TB', 'DY', 'HO', 'ER', 'TM', 'YB', 'LU'
-}
-
-# Broad keywords and fully spelled-out element names for fuzzy matching
-REE_TERMS = [
-    'REE', 'REO', 'REY', 'RARE EARTH', 'SCANDIUM', 'YTTRIUM', 
-    'LANTHANUM', 'CERIUM', 'PRASEODYMIUM', 'NEODYMIUM', 'PROMETHIUM', 
-    'SAMARIUM', 'EUROPIUM', 'GADOLINIUM', 'TERBIUM', 'DYSPROSIUM', 
-    'HOLMIUM', 'ERBIUM', 'THULIUM', 'YTTERBIUM', 'LUTETIUM'
-]
-
-def is_ree(commodities_list):
-    """Checks if any item in the commodities list matches an REE symbol or term."""
-    if not isinstance(commodities_list, list):
-        return False
-        
-    for comm in commodities_list:
-        comm_upper = str(comm).upper().strip()
-        
-        # 1. Check for an exact symbol match
-        if comm_upper in REE_SYMBOLS:
-            return True
-            
-        # 2. Check for substring matches of broader terms or full names
-        if any(term in comm_upper for term in REE_TERMS):
-            return True
-            
-    return False
-# ---------------------------
-
 def generate_healing_link(row):
+    """Provides a self-healing reference link to Mindat if USGS links fail."""
     official_link = row.get('source_link')
     if pd.notna(official_link) and str(official_link).startswith('http'):
         return official_link
@@ -98,7 +65,6 @@ def fetch_firestore_data(collection_name='usmin_critical_minerals'):
             if 'primary_commodities' in doc_dict:
                 doc_dict['commodities_str'] = ", ".join(doc_dict['primary_commodities'])
             
-            # Ensure fallback if origin wasn't explicitly set in early database versions
             doc_dict['feedstock_origin'] = doc_dict.get('feedstock_origin', 'Primary Geologic')
                 
             data.append(doc_dict)
@@ -113,18 +79,17 @@ def fetch_firestore_data(collection_name='usmin_critical_minerals'):
         return pd.DataFrame()
 
 def get_marker_color(origin_type):
-    """Assigns distinct colors to visually separate ore vs. waste."""
     if origin_type == "Primary Geologic":
         return "#3186cc" # Blue
     elif origin_type == "Secondary Mine Waste":
         return "#2ecc71" # Green
     elif origin_type == "Coal Byproducts":
         return "#ff7800" # Orange
-    return "#95a5a6" # Gray fallback
+    return "#95a5a6" # Gray
 
 def main():
     st.title("REEsource: Feedstock Intelligence")
-    st.markdown("Interactive geospatial mapping of Rare Earth Element (REE) and critical mineral deposits across the United States.")
+    st.markdown("Interactive geospatial mapping of uncharacterized critical mineral and REE feedstocks across the United States.")
 
     with st.spinner("Connecting to Google Cloud Firestore..."):
         df = fetch_firestore_data()
@@ -136,12 +101,7 @@ def main():
     df['reference_link'] = df.apply(generate_healing_link, axis=1)
 
     # --- SIDEBAR FILTERS ---
-    st.sidebar.header("Commodity Focus")
-    target_focus = st.sidebar.radio("Select Resource Type", ["Rare Earth Elements (REEs)", "All Critical Minerals"], index=0)
-
     filtered_df = df.copy()
-    if target_focus == "Rare Earth Elements (REEs)":
-        filtered_df = filtered_df[filtered_df['primary_commodities'].apply(is_ree)]
 
     st.sidebar.header("Feedstock Classification")
     available_origins = sorted([o for o in filtered_df['feedstock_origin'].dropna().unique().tolist()])
@@ -159,6 +119,13 @@ def main():
 
     if selected_state != 'All US':
         filtered_df = filtered_df[filtered_df['state'] == selected_state]
+
+    st.sidebar.header("Operational Filters")
+    categories = ['All'] + sorted(filtered_df['operational_category'].dropna().unique().tolist())
+    selected_category = st.sidebar.selectbox("Operational Category", categories)
+
+    if selected_category != 'All':
+        filtered_df = filtered_df[filtered_df['operational_category'] == selected_category]
 
     st.sidebar.metric(label="Target Feedstock Sites", value=len(filtered_df))
 
@@ -179,7 +146,7 @@ def main():
         tooltip_text = f"<b>{row.get('deposit_name', 'Unknown')}</b><br>" \
                        f"Classification: {origin}<br>" \
                        f"State: {row.get('state', 'Unknown')}<br>" \
-                       f"Commodities: {row.get('commodities_str', '')}"
+                       f"Legacy Commodities: {row.get('commodities_str', '')}"
                        
         folium.CircleMarker(
             location=[row['latitude'], row['longitude']],
