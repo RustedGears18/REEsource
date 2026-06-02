@@ -2,22 +2,21 @@
 **Unearthing tomorrow's critical mineral supply.**
 
 ## Overview
-This repository contains the foundational codebase for an end-to-end Python infrastructure designed to aggregate, analyze, and present Rare Earth Element (REE) feedstock data.
+This repository contains the foundational codebase for an end-to-end Python infrastructure designed to aggregate, analyze, and present Rare Earth Element (REE) and critical mineral feedstock data.
 
-Developed as a Master of Science in Data Analytics capstone project, this application models the viability of localized critical mineral supplies and process parameters. The pipeline provides the data backbone for advanced metallurgical recovery concepts—specifically the processing of acid mine waste and electronic waste using Flash Joule Heating (FJH) and carbochlorination chloride separation. 
+Designed for researchers, developers, and business operators, this application models the viability of critical mineral supplies across the United States. It provides a robust data backbone for supply chain analysis, geological research, and resource management.
 
 ## Architecture & Features
-* **Interactive Dashboard:** Built with Streamlit, featuring a custom enterprise UI theme.
-* **Geological Baselines:** Processes and visualizes assay data targeting High-Density Sludge (HDS) from localized legacy sites.
-* **Synthetic Data Governance:** Employs Gaussian Copulas to generate synthetic baseline metrics for regions lacking physical assay data, strictly governing the boundary between physical and generated data.
-* **LLM Integration:** Generates dynamic executive summaries of feedstock viability based on queried state parameters.
-* **Cloud Caching:** Integrates with Google Cloud Firestore to cache API query profiles (USGS/USMIN) to optimize compute and token overhead.
+* **Interactive Dashboard:** Built with Streamlit, featuring a custom enterprise UI theme and dynamic geospatial mapping.
+* **Geological Baselines:** Processes and visualizes assay data targeting critical mineral deposits from legacy and active sites nationwide.
+* **Automated Data Ingestion:** A resilient Python ETL pipeline that dynamically resolves, downloads, and transforms the latest federal dataset from the USGS/Data.gov catalog.
+* **Cloud Database:** Integrates with Google Cloud Firestore (NoSQL) to cache and serve processed tracking records seamlessly to the frontend.
 
 ## Tech Stack
-* **Frontend:** Streamlit (`.streamlit/config.toml` customized)
-* **Backend:** Python 3.14
-* **Database:** Google Cloud Firestore (NoSQL)
-* **Environment:** PowerShell 7 / Windows
+* **Frontend:** Streamlit (`.streamlit/config.toml` customized), Folium
+* **Backend:** Python 3.x, Pandas, Requests
+* **Database:** Google Cloud Firestore
+* **Environment:** Compatible with Windows/PowerShell, macOS, and Linux
 
 ## Local Development Setup
 To run this dashboard locally:
@@ -25,4 +24,30 @@ To run this dashboard locally:
 1. Clone the repository:
    ```bash
    git clone [https://github.com/RustedGears18/REEsource.git](https://github.com/RustedGears18/REEsource.git)
-   cd REEsource
+   cd REEsource'''
+   
+2. Create the virtual environment
+Create and activate a virtual environment:
+'''# bash
+python -m venv .venv'''
+'''# Windows
+.\.venv\Scripts\Activate.ps1'''
+'''# macOS/Linux
+source .venv/bin/activate'''
+
+3. Install the required dependencies
+Install the required dependencies:
+
+'''Bash
+pip install -r requirements.txt'''
+Set up your environment variables:
+
+Create a .env file in the root directory.
+
+Add your Google Cloud service account JSON path: GOOGLE_APPLICATION_CREDENTIALS="path/to/your/key.json"
+
+Run the application:
+
+'''Bash
+streamlit run dashboard.py'''
+
