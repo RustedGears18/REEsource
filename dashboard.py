@@ -69,18 +69,26 @@ def fetch_data():
     
     for doc in docs:
         d = doc.to_dict()
-        
-        # Capture the Doc ID and AI parameters for interactive UI routing
         d['doc_id'] = doc.id
         d['executive_summary'] = d.get('executive_summary', None)
-        
         data.append(d)
         
     df = pd.DataFrame(data)
     
-    # Drop records missing critical geospatial data
-    if 'latitude' in df.columns and 'longitude' in df.columns:
-        df = df.dropna(subset=['latitude', 'longitude'])
+    # 1. If the database is completely empty, return an empty DF with the right columns
+    if df.empty:
+        return pd.DataFrame(columns=['doc_id', 'latitude', 'longitude', 'state', 'feedstock_origin', 'deposit_name'])
+        
+    # 2. If the data exists, but the lat/lon columns are missing entirely, add them safely
+    if 'latitude' not in df.columns:
+        df['latitude'] = pd.NA
+    if 'longitude' not in df.columns:
+        df['longitude'] = pd.NA
+        
+    # 3. Force them to be numeric (turns weird strings/nulls into NaN) and drop invalid rows
+    df['latitude'] = pd.to_numeric(df['latitude'], errors='coerce')
+    df['longitude'] = pd.to_numeric(df['longitude'], errors='coerce')
+    df = df.dropna(subset=['latitude', 'longitude'])
     
     return df
 
