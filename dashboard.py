@@ -1,14 +1,15 @@
 import os
+import json
+import urllib.parse
 import streamlit as st
-from google.cloud import firestore
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
-import json 
-import urllib.parse
+from google.cloud import firestore
+from google.oauth2 import service_account
 from dotenv import load_dotenv
 
-# Load GCP credentials
+# Load GCP credentials (Fallback for local development)
 load_dotenv()
 
 st.set_page_config(
@@ -26,6 +27,22 @@ if os.path.exists(logo_path):
 else:
     st.sidebar.title("REEsource")
     st.sidebar.divider()
+
+# --- DATABASE CONNECTION ---
+@st.cache_resource
+def get_db_client():
+    """
+    Returns an authenticated Firestore client.
+    Prefers Streamlit Secrets (Cloud) but falls back to .env (Local).
+    """
+    if "gcp_service_account" in st.secrets:
+        # Cloud Deployment: Parse literal JSON string from Secrets
+        key_dict = json.loads(st.secrets["gcp_service_account"])
+        creds = service_account.Credentials.from_service_account_info(key_dict)
+        return firestore.Client(credentials=creds, project=creds.project_id)
+    else:
+        # Local Development: Relies on GOOGLE_APPLICATION_CREDENTIALS in .env
+        return firestore.Client()
 
 def generate_healing_link(row):
     """
@@ -46,7 +63,7 @@ def generate_healing_link(row):
 # --- DATA FETCHING ---
 @st.cache_data(ttl=600)
 def fetch_data():
-    db = firestore.Client()
+    db = get_db_client()
     docs = db.collection("usmin_critical_minerals").stream()
     data = []
     
@@ -69,7 +86,7 @@ def fetch_data():
 
 def fetch_sources(doc_id):
     """Dynamically fetches harvested URIs for a specific record."""
-    db = firestore.Client()
+    db = get_db_client()
     sources_ref = db.collection("usmin_critical_minerals").document(doc_id).collection("unstructured_assets").stream()
     return [s.to_dict() for s in sources_ref]
 
