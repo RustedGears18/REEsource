@@ -75,21 +75,19 @@ def fetch_data():
         
     df = pd.DataFrame(data)
     
-    # 1. If the database is completely empty, return an empty DF with the right columns
     if df.empty:
         return pd.DataFrame(columns=['doc_id', 'latitude', 'longitude', 'state', 'feedstock_origin', 'deposit_name'])
         
-    # 2. If the data exists, but the lat/lon columns are missing entirely, add them safely
+    # Safely ensure coordinate columns exist
     if 'latitude' not in df.columns:
         df['latitude'] = pd.NA
     if 'longitude' not in df.columns:
         df['longitude'] = pd.NA
         
-    # 3. Force them to be numeric (turns weird strings/nulls into NaN) and drop invalid rows
     df['latitude'] = pd.to_numeric(df['latitude'], errors='coerce')
     df['longitude'] = pd.to_numeric(df['longitude'], errors='coerce')
-    df = df.dropna(subset=['latitude', 'longitude'])
     
+    # WE REMOVED THE DROPNA HERE so all your data survives!
     return df
 
 def fetch_sources(doc_id):
