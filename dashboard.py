@@ -269,7 +269,7 @@ def main():
 
     # --- RENDER MAP ---
     st_data = st_folium(m, width=1200, height=500, returned_objects=["last_object_clicked_tooltip"])
-        
+
     # --- UI INTERMEDIATE CONTAINER: AI PROFILE ---
     st.divider()
     st.subheader("AI Feedstock Profile Engine")

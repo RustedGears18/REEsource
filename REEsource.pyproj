@@ -23,7 +23,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="ingest_mrds.py" />
-    <Compile Include="ingest_usgs.py" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include=".streamlit\" />
