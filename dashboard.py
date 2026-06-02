@@ -84,7 +84,10 @@ def get_mrds_symbology(status):
         return 30, 0  
 
 def generate_ai_profile(deposit_data):
-    """Initializes the Client with explicit fallback checks for API vs Vertex configurations."""
+    """
+    Forces the LLM to output a strict JSON string separating the markdown profile 
+    from the targeted REE estimation.
+    """
     api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
     
     if api_key:
@@ -95,17 +98,27 @@ def generate_ai_profile(deposit_data):
             client = genai.Client(vertexai=True, project=project_id, location=os.getenv("GCP_LOCATION", "us-central1"))
         else:
             client = genai.Client()
+            
+    target_model = 'gemini-2.5-pro'
     
     prompt = f"""
     You are an expert geological data analyst. Create a highly detailed site profile for the '{deposit_data['deposit_name']}' deposit in {deposit_data['state']}.
     
     Strict Execution Guidelines:
-    1. Total length must be approximately 1000 words.
+    1. Total length of the profile must be approximately 1000 words.
     2. Provide exactly 10 accessible sources at the end.
     3. Sources MUST include a reference to the USGS MRDS data point URI: {deposit_data['source_link']}
     4. Prioritize sources from the USGS, Department of the Interior (DOI), and Army Corps of Engineers. Avoid pay-wall blocked sources entirely.
     5. Include a specific section titled "Environmental Issues and Ethics Concerns" (under 250 words, using up to 2 of the most relevant unbiased sources).
     6. Include a specific section titled "Recent Developments" (under 250 words, using up to 2 of the most relevant unbiased sources).
+    7. NO CONVERSATIONAL FILLER. Do not include phrases like "Here is the profile" or "Sure, I can help".
+    
+    CRITICAL OUTPUT FORMAT:
+    You must return your ENTIRE response as a valid JSON object. Do not wrap it in markdown block quotes. The JSON must exactly match this structure:
+    {{
+        "profile_content": "<The full markdown formatted 1000-word profile including all sections and sources.>",
+        "ree_estimate": "<Based explicitly on the Geological Setting and Mineralogy sections of your profile, provide a 2-3 sentence estimation of the viability and potential presence of Rare Earth Elements (REEs) in this deposit.>"
+    }}
     
     Available Site Context:
     - Deposit Type: {deposit_data.get('geology', {}).get('deposit_type')}
@@ -119,10 +132,22 @@ def generate_ai_profile(deposit_data):
     """
     
     response = client.models.generate_content(
-        model='gemini-2.5-pro',
+        model=target_model,
         contents=prompt
     )
-    return response.text
+    
+    # Safely strip potential markdown blocks from the JSON string
+    raw_text = response.text.strip()
+    if raw_text.startswith("```json"):
+        raw_text = raw_text.split("```json", 1)[1].rsplit("```", 1)[0].strip()
+    elif raw_text.startswith("```"):
+        raw_text = raw_text.split("```", 1)[1].rsplit("```", 1)[0].strip()
+        
+    parsed_json = json.loads(raw_text)
+    
+    # Append the model used to track attribution
+    parsed_json['model_used'] = target_model
+    return parsed_json
 
 def main():
     st.title("REEsource: MRDS Feedstock Intelligence")
@@ -153,7 +178,6 @@ def main():
     st.sidebar.header("Location Filters")
     available_states = ['All US'] + sorted([s for s in filtered_df['state'].dropna().unique().tolist() if s not in ['None', 'UNKNOWN']])
     
-    # Check if Colorado is in the dataset to set as default index
     default_state_index = available_states.index('COLORADO') if 'COLORADO' in available_states else 0
     selected_state = st.sidebar.selectbox("Select State", available_states, index=default_state_index)
 
@@ -257,18 +281,27 @@ def main():
             existing_profiles = list(subcol_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(1).stream())
             
             if existing_profiles:
-                st.markdown(existing_profiles[0].to_dict().get('content'))
-                st.caption(f"Profile last pulled on: {existing_profiles[0].to_dict().get('created_at')}")
-                # Button Styling for Existing Profile (Light Green)
+                profile_data = existing_profiles[0].to_dict()
+                
+                # Render the explicit REE Estimation Field
+                ree_estimate = profile_data.get('ree_estimate')
+                if ree_estimate:
+                    st.info(f"🌍 **Estimated Viable REE Presence:**\n\n{ree_estimate}")
+                    
+                # Render the 1000-word Profile
+                st.markdown(profile_data.get('content'))
+                
+                # Explicit LLM Attribution and Timestamp
+                model_used = profile_data.get('model_used', 'gemini-2.5-pro')
+                st.caption(f"✨ *This Geological Site Profile was compiled by Google {model_used} on {profile_data.get('created_at')}*")
+                
                 btn_color = "#81c784"
                 btn_text = "Refresh Generative Site Profile"
             else:
                 st.info("No detailed intelligence summary exists in the Firestore ledger for this deposit.")
-                # Button Styling for No Profile (Execution Green)
                 btn_color = "#2e7d32" 
                 btn_text = "Execute Generative Site Profile"
                 
-            # CSS Injection to override the specific Streamlit button color
             st.markdown(f"""
                 <style>
                 div.stButton > button:first-child {{
@@ -284,18 +317,20 @@ def main():
             """, unsafe_allow_html=True)
                 
             if st.button(btn_text):
-                with st.spinner("Querying model and screening public datasets..."):
+                with st.spinner("Querying model and screening public datasets...(may take up to 60 seconds to refresh)"):
                     try:
-                        new_profile_text = generate_ai_profile(target_data)
+                        ai_data = generate_ai_profile(target_data)
                         
                         subcol_ref.add({
-                            'content': new_profile_text,
+                            'content': ai_data.get('profile_content', ''),
+                            'ree_estimate': ai_data.get('ree_estimate', ''),
+                            'model_used': ai_data.get('model_used', 'Unknown Model'),
                             'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         })
                         st.success("Analysis complete. Data committed to Firestore subcollection.")
                         st.rerun()
                     except Exception as gen_err:
-                        st.error(f"GenAI Token or Connection Error: {gen_err}")
+                        st.error(f"GenAI Token or Parsing Error: {gen_err}")
     else:
         st.write("*Click a map marker or choose a deposit from the sidebar search to execute dynamic deep-dive analysis.*")
 
