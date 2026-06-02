@@ -13,16 +13,12 @@ def size_mapper(code):
     mapping = {'S': 'Small', 'M': 'Medium', 'L': 'Large', 'N': 'None', 'Y': 'Yes (Unspecified)', 'U': 'Unknown'}
     return mapping.get(str(code).upper().strip(), 'Unquantified')
 
-REE_TERMS = [
-    'REE', 'REO', 'REY', 'RARE EARTH', 'SCANDIUM', 'YTTRIUM', 
-    'LANTHANUM', 'CERIUM', 'PRASEODYMIUM', 'NEODYMIUM', 'PROMETHIUM', 
-    'SAMARIUM', 'EUROPIUM', 'GADOLINIUM', 'TERBIUM', 'DYSPROSIUM', 
-    'HOLMIUM', 'ERBIUM', 'THULIUM', 'YTTERBIUM', 'LUTETIUM'
-]
-
-def check_ree(text_list):
-    text = " ".join([str(t).upper() for t in text_list if pd.notna(t)])
-    return any(term in text for term in REE_TERMS)
+def split_comms(comm_str):
+    """Safely splits a mixed-delimiter string into a clean array, ignoring empty values."""
+    if pd.isna(comm_str) or not str(comm_str).strip(): 
+        return []
+    clean_str = re.sub(r'\(\d+\)', '', str(comm_str)) # Remove parenthetical ranking like (1)
+    return list(set([c.strip().upper() for c in re.split(r'[,;]', clean_str) if c.strip() and c.strip().lower() != 'none']))
 
 def generate_feedstock_summary(row):
     size = size_mapper(row.get('prod_size'))
@@ -35,12 +31,9 @@ def generate_feedstock_summary(row):
     ore = row.get('ore')
     ore_str = f" Documented ore mineralogy includes {ore}." if pd.notna(ore) else ""
     
-    ree_present = check_ree(comms + [ore])
-    ree_text = " Confirmed presence of Rare Earth Elements (REEs)." if ree_present else ""
-    
     return (
         f"Viability & Status: Classified as a '{status}' with a deposit size estimated as '{size}'. "
-        f"Primary/Secondary Commodities: {comms_text}.{ore_str}{ree_text}"
+        f"Target Commodities: {comms_text}.{ore_str}"
     )
 
 def process_and_upsert_mrds(csv_path, collection_name='mrds_feedstock_profiles'):
@@ -74,14 +67,7 @@ def process_and_upsert_mrds(csv_path, collection_name='mrds_feedstock_profiles')
             safe_name = re.sub(r'_+', '_', safe_name).strip('_')
             doc_id = f"MRDS_{dep_id}_{safe_name}"
             
-            raw_comms = f"{row_dict.get('commod1', '')},{row_dict.get('commod2', '')},{row_dict.get('commod3', '')}"
-            primary_commodities = list(set([
-                c.strip().upper() for c in re.split(r'[,;]', raw_comms) 
-                if c.strip() and c.strip().lower() != 'none'
-            ]))
-
             summary = generate_feedstock_summary(row_dict)
-            ree_flag = "Yes" if check_ree(primary_commodities + [row_dict.get('ore')]) else "No"
             
             parent_doc = {
                 "site_id": doc_id,
@@ -95,23 +81,27 @@ def process_and_upsert_mrds(csv_path, collection_name='mrds_feedstock_profiles')
                 "geology": {
                     "deposit_type": row_dict.get('dep_type'),
                     "orebody_formation": row_dict.get('orebody_fm'),
-                    "geologic_model": row_dict.get('model')
+                    "geologic_model": row_dict.get('model'),
+                    "host_rock_unit": row_dict.get('hrock_unit'),
+                    "host_rock_type": row_dict.get('hrock_type')
                 },
                 "operational_category": row_dict.get('dev_stat'),
                 "production_size": size_mapper(row_dict.get('prod_size')),
-                "primary_commodities": primary_commodities,
+                
+                # Separated Commodity Arrays
+                "primary_commodities": split_comms(row_dict.get('commod1')),
+                "secondary_commodities": split_comms(row_dict.get('commod2')),
+                "tertiary_commodities": split_comms(row_dict.get('commod3')),
+                
+                # Material Strings for later REE estimation
                 "ore_minerals": row_dict.get('ore'),
                 "gangue_materials": row_dict.get('gangue'),
+                "other_materials": row_dict.get('other_matl'),
                 
-                # --- NEW COLUMNS FOR DASHBOARD ---
-                "cm_present": "Yes", # All rows in Grade A MRDS set
-                "ree_present": ree_flag,
+                "cm_present": "Yes",
                 "ref": row_dict.get('ref'),
-                # Safe casting for year floats to prevent decimals (e.g. 1989.0 -> 1989)
                 "disc_yr": str(int(row_dict.get('disc_yr'))) if pd.notna(row_dict.get('disc_yr')) else None,
                 "yr_fst_prd": str(int(row_dict.get('yr_fst_prd'))) if pd.notna(row_dict.get('yr_fst_prd')) else None,
-                # ---------------------------------
-                
                 "feedstock_summary": summary,
                 "source_link": row_dict.get('url'),
                 "last_updated": datetime.now().isoformat()

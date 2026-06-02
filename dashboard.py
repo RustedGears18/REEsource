@@ -6,6 +6,8 @@ import folium
 from streamlit_folium import st_folium
 import json 
 import urllib.parse
+from datetime import datetime
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,6 +26,21 @@ else:
     st.sidebar.title("REEsource")
 st.sidebar.divider()
 
+def get_firestore_client():
+    """Centralized DB client so both fetching and AI-writing can access it."""
+    try:
+        if "gcp_service_account" in st.secrets:
+            creds_dict = json.loads(st.secrets["gcp_service_account"])
+            return firestore.Client.from_service_account_info(creds_dict)
+        else:
+            key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            return firestore.Client.from_service_account_json(key_path) if key_path else firestore.Client()
+    except Exception as e:
+        st.error(f"Firestore Auth Error: {e}")
+        return None
+
+db = get_firestore_client()
+
 def generate_healing_link(row):
     official_link = row.get('source_link')
     if pd.notna(official_link) and str(official_link).startswith('http'):
@@ -37,21 +54,19 @@ def generate_healing_link(row):
 
 @st.cache_data(ttl=3600)
 def fetch_firestore_data(collection_name='mrds_feedstock_profiles'):
+    if not db: return pd.DataFrame()
     try:
-        if "gcp_service_account" in st.secrets:
-            creds_dict = json.loads(st.secrets["gcp_service_account"])
-            db = firestore.Client.from_service_account_info(creds_dict)
-        else:
-            key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-            db = firestore.Client.from_service_account_json(key_path) if key_path else firestore.Client()
-            
         docs = db.collection(collection_name).stream()
         data = []
         for doc in docs:
             doc_dict = doc.to_dict()
+            doc_dict['site_id'] = doc.id # Vital for subcollection targeting
+            
             if 'location' in doc_dict and doc_dict['location']:
                 doc_dict['latitude'] = doc_dict['location'].get('latitude')
                 doc_dict['longitude'] = doc_dict['location'].get('longitude')
+                
+            doc_dict['sec_comms_str'] = ", ".join(doc_dict.get('secondary_commodities', []))
             data.append(doc_dict)
         
         return pd.DataFrame(data).dropna(subset=['latitude', 'longitude']) if data else pd.DataFrame()
@@ -60,20 +75,47 @@ def fetch_firestore_data(collection_name='mrds_feedstock_profiles'):
         return pd.DataFrame()
 
 def get_mrds_symbology(status):
-    """Maps operational status to MRDS shape standards (sides, rotation)."""
     status = str(status).lower()
     if 'producer' in status:
-        return 4, 45  # Square (rotated to sit flat)
+        return 4, 45  # Square
     elif 'plant' in status:
-        return 3, 0   # Triangle (points up)
+        return 3, 0   # Triangle
     else:
-        return 30, 0  # Circle (Prospect / Occurrence)
+        return 30, 0  # Circle
+
+def generate_ai_profile(deposit_data):
+    """Triggers the LLM to write the 1000-word structured profile."""
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY"))
+    model = genai.GenerativeModel('gemini-2.5-pro')
+    
+    prompt = f"""
+    You are an expert geological data analyst. Create a highly detailed site profile for the '{deposit_data['deposit_name']}' deposit in {deposit_data['state']}.
+    
+    Strict Execution Guidelines:
+    1. Total length must be approximately 1000 words.
+    2. Provide exactly 10 accessible sources at the end.
+    3. Sources MUST include a reference to the USGS MRDS data point URI: {deposit_data['source_link']}
+    4. Prioritize sources from the USGS, Department of the Interior (DOI), and Army Corps of Engineers. Avoid pay-wall blocked sources entirely.
+    5. Include a specific section titled "Environmental Issues and Ethics Concerns" (under 250 words, using up to 2 of the most relevant unbiased sources).
+    6. Include a specific section titled "Recent Developments" (under 250 words, using up to 2 of the most relevant unbiased sources).
+    
+    Available Site Context:
+    - Deposit Type: {deposit_data.get('geology', {}).get('deposit_type')}
+    - Operational Status: {deposit_data.get('operational_category')}
+    - Size: {deposit_data.get('production_size')}
+    - Primary Commodities: {', '.join(deposit_data.get('primary_commodities', []))}
+    - Secondary Commodities: {', '.join(deposit_data.get('secondary_commodities', []))}
+    - Ore Minerals: {deposit_data.get('ore_minerals')}
+    - Gangue: {deposit_data.get('gangue_materials')}
+    - Host Rock Type: {deposit_data.get('geology', {}).get('host_rock_type')}
+    """
+    response = model.generate_content(prompt)
+    return response.text
 
 def main():
     st.title("REEsource: MRDS Feedstock Intelligence")
     st.markdown("### *Unearthing tomorrow's critical mineral supply*")
     
-    # Glossary & Definitions Callout
     st.info(
         "**Critical Mineral:** A non-fuel mineral or mineral material essential to the economic and "
         "national security of the United States, the supply chain of which is vulnerable to disruption.\n\n"
@@ -109,11 +151,16 @@ def main():
 
     if selected_category != 'All':
         filtered_df = filtered_df[filtered_df['operational_category'] == selected_category]
+        
+    sizes = ['All'] + sorted(filtered_df['production_size'].dropna().unique().tolist())
+    selected_size = st.sidebar.selectbox("Deposit Size", sizes)
+    
+    if selected_size != 'All':
+        filtered_df = filtered_df[filtered_df['production_size'] == selected_size]
 
     st.sidebar.metric(label="Visible Targets", value=len(filtered_df))
 
     # --- DYNAMIC ZOOM LOGIC ---
-    # Zoom level 12 roughly equals a 10-mile overhead frame
     if target_deposit != 'None':
         target_row = df[df['deposit_name'] == target_deposit].iloc[0]
         map_center = [target_row['latitude'], target_row['longitude']]
@@ -125,25 +172,17 @@ def main():
         map_center = [39.8283, -98.5795]
         zoom_level = 4
 
-    # --- MAP RENDERING (Multi-Layer) ---
     m = folium.Map(location=map_center, zoom_start=zoom_level, tiles=None)
 
-    # 1. Default Layer: Esri Satellite
     folium.TileLayer(
         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attr='Esri',
         name='Satellite (Default)',
         control=True
     ).add_to(m)
-    # 2. Toggle Layer: CartoDB Positron
     folium.TileLayer('CartoDB positron', name='Light Basemap', control=True).add_to(m)
-    # 3. Toggle Layer: OpenStreetMap
-    folium.TileLayer('OpenStreetMap', name='Street Map', control=True).add_to(m)
-    
-    # Allow user to switch between the registered layers
     folium.LayerControl().add_to(m)
 
-    # Add shapes based on MRDS standards
     for _, row in filtered_df.iterrows():
         sides, rot = get_mrds_symbology(row.get('operational_category'))
         summary = row.get('feedstock_summary', 'No summary available.')
@@ -157,7 +196,7 @@ def main():
             location=[row['latitude'], row['longitude']],
             number_of_sides=sides,
             rotation=rot,
-            radius=7 if sides < 30 else 5, # Make squares/triangles slightly larger for visibility
+            radius=7 if sides < 30 else 5, 
             popup=folium.Popup(tooltip_text, max_width=350),
             tooltip=row.get('deposit_name', 'Unknown'),
             color="#3186cc",
@@ -172,33 +211,62 @@ def main():
     st.subheader("Extracted Site Specifications")
     st.dataframe(
         filtered_df[[
-            'deposit_name', 'production_size', 'operational_category', 
-            'cm_present', 'ree_present', 'disc_yr', 'yr_fst_prd', 'ref', 'reference_link'
+            'deposit_name', 'state', 'production_size', 'operational_category', 
+            'sec_comms_str', 'cm_present', 'disc_yr', 'yr_fst_prd', 'ref', 'reference_link'
         ]],
         column_config={
             "deposit_name": "Deposit",
+            "state": "State",
             "production_size": "Size",
             "operational_category": "Status",
-            "cm_present": "Critical Minerals (Viable)",
-            "ree_present": "REEs (Viable)",
+            "sec_comms_str": "Secondary Commodities",
+            "cm_present": "Crit. Mins (Viable)",
             "disc_yr": "Disc. Year",
             "yr_fst_prd": "1st Prod. Year",
             "ref": "USGS Reference(s)",
-            "reference_link": st.column_config.LinkColumn(
-                "Source / Location", 
-                display_text=r"^(?:https?:\/\/(?:www\.)?)?(.{0,30})" 
-            )
+            "reference_link": st.column_config.LinkColumn("Source / Location", display_text=r"^(?:https?:\/\/(?:www\.)?)?(.{0,30})")
         },
         hide_index=True,
         use_container_width=True
     )
 
-    # Contextual Summary Output via Map Click
+    # --- AI PROFILE SUBCOLLECTION VIEWER ---
+    st.subheader("AI Feedstock Profile")
     if st_data and st_data.get('last_object_clicked_tooltip'):
         selected_deposit = st_data['last_object_clicked_tooltip']
-        selected_row = filtered_df[filtered_df['deposit_name'] == selected_deposit]
+        
+        # Use the raw dataframe to ensure we can pull data even if it was filtered out of view
+        selected_row = df[df['deposit_name'] == selected_deposit]
+        
         if not selected_row.empty:
-            st.info(f"**{selected_deposit} Profile:**\n\n" + selected_row.iloc[0]['feedstock_summary'])
+            target_data = selected_row.iloc[0].to_dict()
+            doc_id = target_data['site_id']
+            
+            st.write(f"### **{selected_deposit}**")
+            
+            # Fetch the most recent AI profile from the subcollection
+            subcol_ref = db.collection('mrds_feedstock_profiles').document(doc_id).collection('ai_profiles')
+            existing_profiles = list(subcol_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(1).stream())
+            
+            if existing_profiles:
+                st.markdown(existing_profiles[0].to_dict().get('content'))
+                st.caption(f"Profile generated on: {existing_profiles[0].to_dict().get('created_at')}")
+            else:
+                st.info("No detailed AI profile exists for this site yet.")
+                
+            if st.button("Generate / Refresh AI Profile"):
+                with st.spinner("Compiling geological profile and sources (this takes about 30 seconds)..."):
+                    new_profile_text = generate_ai_profile(target_data)
+                    
+                    # Save to Firestore Subcollection
+                    subcol_ref.add({
+                        'content': new_profile_text,
+                        'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    })
+                    st.success("Profile saved successfully!")
+                    st.rerun()
+    else:
+        st.write("Click a map marker to view or generate its comprehensive profile.")
 
 if __name__ == "__main__":
     main()
