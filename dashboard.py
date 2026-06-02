@@ -216,7 +216,7 @@ def main():
     elif not filtered_df.empty:
         map_center = [filtered_df['latitude'].mean(), filtered_df['longitude'].mean()]
         # Increased zoom level from 6 to 7 for a tighter state fit
-        zoom_level = 8 if selected_state != 'All US' else 4
+        zoom_level = 7 if selected_state != 'All US' else 4
     else:
         map_center = [39.8283, -98.5795]
         zoom_level = 4
