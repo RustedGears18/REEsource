@@ -7,7 +7,7 @@ from streamlit_folium import st_folium
 import json 
 import urllib.parse
 from datetime import datetime
-from google import genai # NEW SDK IMPORT
+from google import genai
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,7 +27,7 @@ else:
 st.sidebar.divider()
 
 def get_firestore_client():
-    """Centralized DB client so both fetching and AI-writing can access it."""
+    """Initializes Firestore using environment variables or fallback pathing."""
     try:
         if "gcp_service_account" in st.secrets:
             creds_dict = json.loads(st.secrets["gcp_service_account"])
@@ -36,7 +36,7 @@ def get_firestore_client():
             key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
             return firestore.Client.from_service_account_json(key_path) if key_path else firestore.Client()
     except Exception as e:
-        st.error(f"Firestore Auth Error: {e}")
+        st.error(f"Firestore Initialization Error: {e}")
         return None
 
 db = get_firestore_client()
@@ -77,21 +77,27 @@ def fetch_firestore_data(collection_name='mrds_feedstock_profiles'):
 def get_mrds_symbology(status):
     status = str(status).lower()
     if 'producer' in status:
-        return 4, 45  # Square
+        return 4, 45  
     elif 'plant' in status:
-        return 3, 0   # Triangle
+        return 3, 0   
     else:
-        return 30, 0  # Circle
+        return 30, 0  
 
 def generate_ai_profile(deposit_data):
-    """Triggers the LLM to write the 1000-word structured profile using the new google-genai SDK."""
-    # 1. Safely extract the API key for local or Streamlit Cloud environments
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key and "GEMINI_API_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_API_KEY"]
-        
-    # 2. Initialize the new Client
-    client = genai.Client(api_key=api_key)
+    """Initializes the Client with explicit fallback checks for API vs Vertex configurations."""
+    api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
+    
+    # Check if we should initialize via standard API Key or fallback directly to Vertex via Service Account
+    if api_key:
+        client = genai.Client(api_key=api_key)
+    else:
+        # If no explicit API key is found, try running through Vertex AI using the project key
+        project_id = os.getenv("GCP_PROJECT_ID")
+        if project_id:
+            client = genai.Client(vertexai=True, project=project_id, location=os.getenv("GCP_LOCATION", "us-central1"))
+        else:
+            # Absolute fallback initialization attempt
+            client = genai.Client()
     
     prompt = f"""
     You are an expert geological data analyst. Create a highly detailed site profile for the '{deposit_data['deposit_name']}' deposit in {deposit_data['state']}.
@@ -115,7 +121,6 @@ def generate_ai_profile(deposit_data):
     - Host Rock Type: {deposit_data.get('geology', {}).get('host_rock_type')}
     """
     
-    # 3. Use the new generation syntax
     response = client.models.generate_content(
         model='gemini-2.5-pro',
         contents=prompt
@@ -215,10 +220,58 @@ def main():
             fill_opacity=0.7
         ).add_to(m)
 
-    # --- UI LAYOUT & TABLES ---
+    # --- RENDER MAP ---
     st_data = st_folium(m, width=1200, height=500, returned_objects=["last_object_clicked_tooltip"])
         
-    st.subheader("Extracted Site Specifications")
+    # --- UI INTERMEDIATE CONTAINER: AI PROFILE (SHIFTS DIRECTLY BELOW MAP) ---
+    st.divider()
+    st.subheader("AI Feedstock Profile Engine")
+    
+    # Default selection setup to handle tooltips vs search drop-down selection
+    selected_deposit = None
+    if st_data and st_data.get('last_object_clicked_tooltip'):
+        selected_deposit = st_data['last_object_clicked_tooltip']
+    elif target_deposit != 'None':
+        selected_deposit = target_deposit
+
+    if selected_deposit:
+        selected_row = df[df['deposit_name'] == selected_deposit]
+        
+        if not selected_row.empty:
+            target_data = selected_row.iloc[0].to_dict()
+            doc_id = target_data['site_id']
+            
+            st.write(f"### Target View: **{selected_deposit}**")
+            
+            # Subcollection dynamic retrieval
+            subcol_ref = db.collection('mrds_feedstock_profiles').document(doc_id).collection('ai_profiles')
+            existing_profiles = list(subcol_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(1).stream())
+            
+            if existing_profiles:
+                st.markdown(existing_profiles[0].to_dict().get('content'))
+                st.caption(f"Profile last pulled on: {existing_profiles[0].to_dict().get('created_at')}")
+            else:
+                st.info("No detailed intelligence summary exists in the Firestore ledger for this deposit.")
+                
+            if st.button("Execute / Refresh Generative Site Profile"):
+                with st.spinner("Querying model and screening public datasets..."):
+                    try:
+                        new_profile_text = generate_ai_profile(target_data)
+                        
+                        subcol_ref.add({
+                            'content': new_profile_text,
+                            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        })
+                        st.success("Analysis complete. Data committed to Firestore subcollection.")
+                        st.rerun()
+                    except Exception as gen_err:
+                        st.error(f"GenAI Token or Connection Error: {gen_err}")
+    else:
+        st.write("*Click a map marker or choose a deposit from the sidebar search to execute dynamic deep-dive analysis.*")
+
+    # --- UI PINNED TO BOTTOM: SPECIFICATIONS MASTER DATA TABLE ---
+    st.divider()
+    st.subheader("Extracted Site Specifications (Filtered Universe)")
     st.dataframe(
         filtered_df[[
             'deposit_name', 'state', 'production_size', 'operational_category', 
@@ -239,42 +292,6 @@ def main():
         hide_index=True,
         use_container_width=True
     )
-
-    # --- AI PROFILE SUBCOLLECTION VIEWER ---
-    st.subheader("AI Feedstock Profile")
-    if st_data and st_data.get('last_object_clicked_tooltip'):
-        selected_deposit = st_data['last_object_clicked_tooltip']
-        
-        selected_row = df[df['deposit_name'] == selected_deposit]
-        
-        if not selected_row.empty:
-            target_data = selected_row.iloc[0].to_dict()
-            doc_id = target_data['site_id']
-            
-            st.write(f"### **{selected_deposit}**")
-            
-            # Fetch the most recent AI profile from the subcollection
-            subcol_ref = db.collection('mrds_feedstock_profiles').document(doc_id).collection('ai_profiles')
-            existing_profiles = list(subcol_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(1).stream())
-            
-            if existing_profiles:
-                st.markdown(existing_profiles[0].to_dict().get('content'))
-                st.caption(f"Profile generated on: {existing_profiles[0].to_dict().get('created_at')}")
-            else:
-                st.info("No detailed AI profile exists for this site yet.")
-                
-            if st.button("Generate / Refresh AI Profile"):
-                with st.spinner("Compiling geological profile and sources (this takes about 30 seconds)..."):
-                    new_profile_text = generate_ai_profile(target_data)
-                    
-                    subcol_ref.add({
-                        'content': new_profile_text,
-                        'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    })
-                    st.success("Profile saved successfully!")
-                    st.rerun()
-    else:
-        st.write("Click a map marker to view or generate its comprehensive profile.")
 
 if __name__ == "__main__":
     main()
