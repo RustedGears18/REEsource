@@ -21,7 +21,7 @@ st.set_page_config(
 # --- BRANDING & ASSETS ---
 logo_path = os.path.join("assets", "REEsource brand dark.png")
 if os.path.exists(logo_path):
-    st.sidebar.image(logo_path, use_container_width=True)
+    st.sidebar.image(logo_path, width="stretch")
 else:
     st.sidebar.title("REEsource")
 st.sidebar.divider()
