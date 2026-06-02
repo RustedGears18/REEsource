@@ -7,7 +7,7 @@ from streamlit_folium import st_folium
 import json 
 import urllib.parse
 from datetime import datetime
-import google.generativeai as genai
+from google import genai # NEW SDK IMPORT
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -60,7 +60,7 @@ def fetch_firestore_data(collection_name='mrds_feedstock_profiles'):
         data = []
         for doc in docs:
             doc_dict = doc.to_dict()
-            doc_dict['site_id'] = doc.id # Vital for subcollection targeting
+            doc_dict['site_id'] = doc.id 
             
             if 'location' in doc_dict and doc_dict['location']:
                 doc_dict['latitude'] = doc_dict['location'].get('latitude')
@@ -84,9 +84,14 @@ def get_mrds_symbology(status):
         return 30, 0  # Circle
 
 def generate_ai_profile(deposit_data):
-    """Triggers the LLM to write the 1000-word structured profile."""
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY"))
-    model = genai.GenerativeModel('gemini-2.5-pro')
+    """Triggers the LLM to write the 1000-word structured profile using the new google-genai SDK."""
+    # 1. Safely extract the API key for local or Streamlit Cloud environments
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key and "GEMINI_API_KEY" in st.secrets:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        
+    # 2. Initialize the new Client
+    client = genai.Client(api_key=api_key)
     
     prompt = f"""
     You are an expert geological data analyst. Create a highly detailed site profile for the '{deposit_data['deposit_name']}' deposit in {deposit_data['state']}.
@@ -109,7 +114,12 @@ def generate_ai_profile(deposit_data):
     - Gangue: {deposit_data.get('gangue_materials')}
     - Host Rock Type: {deposit_data.get('geology', {}).get('host_rock_type')}
     """
-    response = model.generate_content(prompt)
+    
+    # 3. Use the new generation syntax
+    response = client.models.generate_content(
+        model='gemini-2.5-pro',
+        contents=prompt
+    )
     return response.text
 
 def main():
@@ -235,7 +245,6 @@ def main():
     if st_data and st_data.get('last_object_clicked_tooltip'):
         selected_deposit = st_data['last_object_clicked_tooltip']
         
-        # Use the raw dataframe to ensure we can pull data even if it was filtered out of view
         selected_row = df[df['deposit_name'] == selected_deposit]
         
         if not selected_row.empty:
@@ -258,7 +267,6 @@ def main():
                 with st.spinner("Compiling geological profile and sources (this takes about 30 seconds)..."):
                     new_profile_text = generate_ai_profile(target_data)
                     
-                    # Save to Firestore Subcollection
                     subcol_ref.add({
                         'content': new_profile_text,
                         'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
