@@ -5,6 +5,7 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 import json 
+import urllib.parse
 from dotenv import load_dotenv
 
 # Load GCP credentials
@@ -27,13 +28,27 @@ else:
     st.sidebar.divider()
 
 def generate_healing_link(row):
-    """Provides a self-healing reference link to Mindat if USGS links fail."""
+    """
+    Returns the official USGS link if available. 
+    Otherwise, utilizes the exact coordinates to drop a Google Maps pin, 
+    guaranteeing a valid locational result.
+    """
     official_link = row.get('source_link')
     if pd.notna(official_link) and str(official_link).startswith('http'):
         return official_link
-    clean_name = str(row.get('deposit_name', '')).replace(' ', '+')
+    
+    # 1. Primary Fallback: Guaranteed Geospatial Pin
+    lat = row.get('latitude')
+    lon = row.get('longitude')
+    
+    if pd.notna(lat) and pd.notna(lon):
+        return f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+        
+    # 2. Failsafe: Broad Google Search intent (bypasses Mindat's strict string rules)
+    deposit = str(row.get('deposit_name', '')).replace('_', ' ')
     state = str(row.get('state', ''))
-    return f"https://www.mindat.org/search.php?search={clean_name}+{state}"
+    query = urllib.parse.quote(f"{deposit} mine {state}")
+    return f"https://www.google.com/search?q={query}"
 
 @st.cache_data(ttl=3600)
 def fetch_firestore_data(collection_name='usmin_critical_minerals'):
@@ -173,7 +188,7 @@ def main():
                 "state": "State",
                 "feedstock_origin": "Origin",
                 "reference_link": st.column_config.LinkColumn(
-                    "Source", 
+                    "Source / Location", 
                     display_text=r"^(?:https?:\/\/(?:www\.)?)?(.{0,40})" 
                 )
             },
