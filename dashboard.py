@@ -176,7 +176,10 @@ def main():
                 "deposit_name": "Deposit",
                 "state": "State",
                 "commodities_str": "Commodities",
-                "reference_link": st.column_config.LinkColumn("More Info", display_text="View Source")
+                "reference_link": st.column_config.LinkColumn(
+                    "Source", 
+                    display_text=r"^(?:https?:\/\/(?:www\.)?)?(.{0,40})"  # Extracts the first clean 40 characters for display
+                )
             },
             hide_index=True,
             use_container_width=True
