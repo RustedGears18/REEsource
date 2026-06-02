@@ -42,7 +42,6 @@ def generate_healing_link(row):
     official_link = row.get('source_link')
     if pd.notna(official_link) and str(official_link).startswith('http'):
         return official_link
-    
     lat = row.get('latitude')
     lon = row.get('longitude')
     if pd.notna(lat) and pd.notna(lon):
@@ -61,11 +60,9 @@ def fetch_data():
         d['doc_id'] = doc.id
         d['executive_summary'] = d.get('executive_summary', None)
         
-        # --- BULLETPROOF COORDINATE HUNTER ---
         lat = None
         lon = None
         
-        # 1. Search root level for any variation (case-insensitive)
         for key, val in d.items():
             k_lower = key.lower()
             if k_lower in ['latitude', 'lat', 'lat_wgs84', 'y']:
@@ -73,20 +70,16 @@ def fetch_data():
             elif k_lower in ['longitude', 'lon', 'long', 'long_wgs84', 'x']:
                 lon = val
                 
-        # 2. Check nested 'location' dictionary
         if 'location' in d and isinstance(d['location'], dict):
             lat = d['location'].get('latitude', lat)
             lon = d['location'].get('longitude', lon)
             
-        # 3. Check for native Firestore GeoPoint objects
         if 'location' in d and hasattr(d['location'], 'latitude'):
             lat = d['location'].latitude
             lon = d['location'].longitude
             
-        # Assign discovered coordinates
         d['latitude_extracted'] = lat
         d['longitude_extracted'] = lon
-        
         data.append(d)
         
     df = pd.DataFrame(data)
@@ -94,10 +87,8 @@ def fetch_data():
     if df.empty:
         return pd.DataFrame(columns=['doc_id', 'latitude', 'longitude', 'state', 'feedstock_origin', 'deposit_name'])
         
-    # Convert safely to numeric, forcing text/invalid data to NaN
     df['latitude'] = pd.to_numeric(df['latitude_extracted'], errors='coerce')
     df['longitude'] = pd.to_numeric(df['longitude_extracted'], errors='coerce')
-    
     return df
 
 def fetch_sources(doc_id):
@@ -118,8 +109,12 @@ df['reference_link'] = df.apply(generate_healing_link, axis=1)
 
 st.title("U.S. Critical Minerals & Rare Earths")
 
-# --- SIDEBAR FILTERS ---
-st.sidebar.subheader("Filter Data")
+# --- SIDEBAR FILTERS & SEARCH ---
+st.sidebar.subheader("🔍 Search & Filter")
+
+# Free-text Search Bar
+search_query = st.sidebar.text_input("Search by Deposit Name (e.g., 'Alma')", "")
+
 states = sorted(df['state'].dropna().unique().tolist()) if 'state' in df.columns else []
 selected_state = st.sidebar.selectbox("Select State", ["All"] + states)
 
@@ -127,6 +122,9 @@ origins = sorted(df['feedstock_origin'].dropna().unique().tolist()) if 'feedstoc
 selected_origin = st.sidebar.selectbox("Feedstock Origin", ["All"] + origins)
 
 filtered_df = df.copy()
+
+if search_query:
+    filtered_df = filtered_df[filtered_df['deposit_name'].str.contains(search_query, case=False, na=False)]
 if selected_state != "All":
     filtered_df = filtered_df[filtered_df['state'] == selected_state]
 if selected_origin != "All":
@@ -135,18 +133,44 @@ if selected_origin != "All":
 # --- BUILD FOLIUM MAP ---
 map_df = filtered_df.dropna(subset=['latitude', 'longitude'])
 
-# 🚨 THE DEBUGGER: If map is empty but data exists, tell us why!
-if map_df.empty and not filtered_df.empty:
-    st.error("🚨 Map Data Error: We found records, but none of them have valid numeric coordinates!")
-    st.write("Here is the exact raw data Python is seeing for the first record. Look closely at the keys and values to see where the coordinates are hiding (or if the cache is stale):")
-    st.json(filtered_df.iloc[0].to_dict())
-
+# Dynamic Centering and Zooming Logic
+zoom_level = 4
 map_center = [39.8283, -98.5795] 
+
 if not map_df.empty:
-    map_center = [map_df['latitude'].mean(), map_df['longitude'].mean()]
+    # If the user searched and narrowed it down to 1 specific site, zoom in close!
+    if len(map_df) == 1:
+        map_center = [map_df['latitude'].iloc[0], map_df['longitude'].iloc[0]]
+        zoom_level = 12 
+    else:
+        map_center = [map_df['latitude'].mean(), map_df['longitude'].mean()]
+        zoom_level = 4 
 
-m = folium.Map(location=map_center, zoom_start=4, tiles="CartoDB positron")
+m = folium.Map(location=map_center, zoom_start=zoom_level)
 
+# Add Base GIS Layers
+folium.TileLayer('CartoDB positron', name='Clean Light Map').add_to(m)
+
+# High-Res Esri Satellite / Terrain Layer (Shows forests, terrain, and land types)
+folium.TileLayer(
+    tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attr='Esri',
+    name='Satellite Terrain',
+    max_zoom=18
+).add_to(m)
+
+# Topographic Layer
+folium.TileLayer(
+    tiles='https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    attr='OpenTopoMap',
+    name='Topographic Zones',
+    max_zoom=17
+).add_to(m)
+
+# Add layer control so the user can switch between them
+folium.LayerControl().add_to(m)
+
+# Add Markers
 for _, row in map_df.iterrows():
     origin = row.get('feedstock_origin', 'Unknown')
     marker_color = get_marker_color(origin)
@@ -165,57 +189,70 @@ for _, row in map_df.iterrows():
         fill_color=marker_color
     ).add_to(m)
 
-# --- UI LAYOUT ---
-col1, col2 = st.columns([2, 1])
+# --- UI LAYOUT: FULL WIDTH MAP ---
+st_data = st_folium(m, use_container_width=True, height=550, returned_objects=["last_object_clicked"])
 
-with col1:
-    st_data = st_folium(m, width=700, height=600, returned_objects=["last_object_clicked"])
+st.divider()
+
+# --- UI LAYOUT: BOTTOM DETAILS SECTION ---
+st.header("Site Details & AI Profile")
+
+if st_data and st_data.get("last_object_clicked"):
+    lat = st_data["last_object_clicked"]["lat"]
+    lon = st_data["last_object_clicked"]["lng"]
     
-with col2:
-    st.subheader("Site Details")
-    if st_data and st_data.get("last_object_clicked"):
-        lat = st_data["last_object_clicked"]["lat"]
-        lon = st_data["last_object_clicked"]["lng"]
+    match = filtered_df[
+        (filtered_df['latitude'].round(4) == round(lat, 4)) & 
+        (filtered_df['longitude'].round(4) == round(lon, 4))
+    ]
+    
+    if not match.empty:
+        site = match.iloc[0]
         
-        match = filtered_df[
-            (filtered_df['latitude'].round(4) == round(lat, 4)) & 
-            (filtered_df['longitude'].round(4) == round(lon, 4))
-        ]
+        st.subheader(f"📍 {site.get('deposit_name', 'Unknown Deposit')}")
+        st.caption(f"**Classification:** {site.get('feedstock_origin', 'Unknown Origin')} | **State:** {site.get('state', '')} | **Coordinates:** {lat}, {lon}")
         
-        if not match.empty:
-            site = match.iloc[0]
-            st.markdown(f"### {site.get('deposit_name', 'Unknown Deposit')}")
-            st.caption(f"**Origin:** {site.get('feedstock_origin', 'Unknown Origin')} | **State:** {site.get('state', '')}")
-            st.divider()
-            
-            st.markdown("#### Executive Summary")
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            st.markdown("### Executive Summary")
             if pd.notna(site.get('executive_summary')) and site.get('executive_summary'):
                 st.info(site['executive_summary'])
             else:
-                st.warning("No summary available yet. Run backend harvester to generate.")
-            
-            st.markdown("#### Discovered Sources")
+                st.warning("No summary available yet. Run the backend harvester to generate.")
+                
+        with col2:
+            st.markdown("### Discovered Sources & Links")
             sources = fetch_sources(site['doc_id'])
             if sources:
                 for s in sources:
                     title = s.get('title', 'Target Link')
                     url = s.get('source_url', '#')
-                    st.markdown(f"- [{title}]({url})")
+                    # Exposed Full URL Formatting
+                    st.markdown(f"- **{title}** \n  [{url}]({url})")
             else:
                 st.write("No external sources harvested yet.")
-        else:
-            st.write("Details could not be resolved. Please try another pin.")
+                
+            # Add the raw reference link button
+            ref_link = site.get('reference_link')
+            if pd.notna(ref_link) and ref_link != "#":
+                st.write("---")
+                st.link_button("View Raw Database Source", ref_link)
+                
     else:
-        st.write("Click a map pin to load the AI-generated profile and source links.")
-        st.write("---")
-        st.dataframe(
-            filtered_df[['deposit_name', 'state', 'feedstock_origin', 'reference_link']],
-            column_config={
-                "deposit_name": "Deposit",
-                "state": "State",
-                "feedstock_origin": "Origin",
-                "reference_link": st.column_config.LinkColumn("Source / Location")
-            },
-            hide_index=True,
-            use_container_width=True
-        )
+        st.write("Details could not be resolved. Please try another pin.")
+else:
+    st.info("👆 Click a map pin above to load the AI-generated profile, executive summary, and source links.")
+    
+    # Render the fallback table full-width
+    st.dataframe(
+        filtered_df[['deposit_name', 'state', 'feedstock_origin', 'reference_link']],
+        column_config={
+            "deposit_name": "Deposit",
+            "state": "State",
+            "feedstock_origin": "Origin",
+            "reference_link": st.column_config.LinkColumn("Source / Location")
+        },
+        hide_index=True,
+        use_container_width=True
+    )
