@@ -58,11 +58,9 @@ def resolve_sciencebase_id_from_catalog(session):
         dcat_meta = dataset.get('dcat', {})
         modified_str = dcat_meta.get('modified', '')
         
-        # Pull candidate fields for ID extraction
         landing_page = dcat_meta.get('landingPage', '')
         identifier = dcat_meta.get('identifier', '')
         
-        # Match 24-character hexadecimal ScienceBase string
         match = re.search(r'([a-f0-9]{24})', str(landing_page) + " " + str(identifier))
         
         if match:
@@ -107,9 +105,10 @@ def get_sciencebase_csv_url(item_id, session):
     except Exception as e:
         logging.error(f"ScienceBase lookup failed: {e}")
         return None
-def process_and_upsert_parents(csv_url, metadata_date, session, collection_name='colorado_critical_minerals'):
+
+def process_and_upsert_parents(csv_url, metadata_date, session, collection_name='usmin_critical_minerals'):
     """
-    Step 3: Stream download the CSV, filter for Colorado, transform 
+    Step 3: Stream download the CSV, clean headers, transform 
     to the parent NoSQL schema, and upsert with merge=True.
     """
     try:
@@ -117,20 +116,15 @@ def process_and_upsert_parents(csv_url, metadata_date, session, collection_name=
         response = session.get(csv_url, stream=True, timeout=60)
         response.raise_for_status()
         
-        # utf-8-sig removes the hidden Byte Order Mark from federal CSVs
         df = pd.read_csv(response.raw, encoding='utf-8-sig')
-        
-        # Strip all whitespace from headers and lowercase them for safety
         df.columns = df.columns.str.strip().str.lower()
         
-        # 1. Filter strictly for Colorado
+        # Standardize state column format for nationwide processing
         if 'state' in df.columns:
-            df = df[df['state'].str.strip().str.upper() == 'CO']
-            
-        # REMOVED: The REE filter. We are ingesting ALL 50 Colorado critical mineral sites.
+            df['state'] = df['state'].astype(str).str.strip().str.upper()
             
         if df.empty:
-            logging.warning("No tracking records matched the 'CO' threshold after filtering.")
+            logging.warning("No tracking records matched after processing.")
             return
 
         logging.info(f"Found {len(df)} matching parent nodes. Executing Firestore updates...")
@@ -143,10 +137,7 @@ def process_and_upsert_parents(csv_url, metadata_date, session, collection_name=
         for _, row in df.iterrows():
             row_data = {k: (v if not pd.isna(v) else None) for k, v in row.to_dict().items()}
             
-            # The deposit column will now be correctly found
             raw_name = str(row_data.get('deposit', f'unknown_{count}'))
-            
-            # Formulate a deterministic ID
             safe_name = re.sub(r'[^a-zA-Z0-9]', '_', raw_name).upper()
             safe_name = re.sub(r'_+', '_', safe_name).strip('_')
             
@@ -184,21 +175,17 @@ def process_and_upsert_parents(csv_url, metadata_date, session, collection_name=
         if count % 500 != 0:
             batch.commit()
             
-        logging.info(f"Pipeline Refresh Complete. Upserted {count} verified tracking records.")
+        logging.info(f"Pipeline Refresh Complete. Upserted {count} verified tracking records into {collection_name}.")
 
     except Exception as e:
         logging.error(f"ETL Execution loop encountered an exception: {e}")
+
 if __name__ == "__main__":
-    # Standard resilient session instantiation
     http_session = get_resilient_session()
-    
-    # 1. Resolve current active identifier
     active_id, mod_date = resolve_sciencebase_id_from_catalog(http_session)
     
     if active_id:
-        # 2. Extract specific download link
         csv_download_url = get_sciencebase_csv_url(active_id, http_session)
-        
         if csv_download_url:
-            # 3. Transform and ingest
+            # Pushes the national dataset to the unified collection
             process_and_upsert_parents(csv_download_url, mod_date, http_session)
