@@ -4,7 +4,8 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>0a885820-d661-47dc-9a5a-8480c1aee26b</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>preload_co_profiles.py</StartupFile>
+    <StartupFile>
+    </StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -21,18 +22,28 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="ingest_mrds.py" />
-    <Compile Include="pages\1_Assay_Documents.py" />
-    <Compile Include="preload_co_profiles.py" />
-  </ItemGroup>
-  <ItemGroup>
     <Folder Include=".streamlit\" />
+    <Folder Include="data\" />
+    <Folder Include="data\processed\" />
+    <Folder Include="data\raw\COMineralBeltMid\Magnetic\" />
+    <Folder Include="data\raw\COMineralBeltMid\Radiometric\" />
+    <Folder Include="data\raw\COMineralBeltNE\" />
+    <Folder Include="data\raw\COMineralBeltNE\Magnetic\" />
+    <Folder Include="data\raw\COMineralBeltNE\Radiometric\" />
+    <Folder Include="data\raw\COMineralBeltMid\" />
+    <Folder Include="data\raw\SierraMadre\" />
+    <Folder Include="data\raw\SierraMadre\Magnetic\" />
+    <Folder Include="data\raw\SierraMadre\Radiometric\" />
+    <Folder Include="data\raw\" />
+    <Folder Include="app\" />
+    <Folder Include="notebooks\" />
     <Folder Include="pages\" />
   </ItemGroup>
   <ItemGroup>
     <Content Include=".env" />
     <Content Include=".streamlit\config.toml" />
     <Content Include="dashboard.py" />
+    <Content Include="REEsource_Architecture_Decisions.txt" />
     <Content Include="LICENSE" />
     <Content Include="readme.md" />
   </ItemGroup>
