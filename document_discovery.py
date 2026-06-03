@@ -2,12 +2,13 @@ import os
 import json
 import hashlib
 import logging
+import streamlit as st
 from google.cloud import firestore
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
-# Suppress verbose Google API logging (matching your preload script)
+# Suppress verbose Google API logging 
 logging.getLogger("google").setLevel(logging.WARNING)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -15,11 +16,20 @@ load_dotenv()
 
 # ==========================================
 # Core Client Initialization 
-# (Mirrored from dashboard.py / preload_co_profiles.py)
 # ==========================================
 
 def get_firestore_client():
+    """Initializes Firestore using Streamlit secrets or fallback pathing."""
     try:
+        # Check for Streamlit secrets first (for cloud deployment)
+        try:
+            if "gcp_service_account" in st.secrets:
+                creds_dict = json.loads(st.secrets["gcp_service_account"])
+                return firestore.Client.from_service_account_info(creds_dict)
+        except Exception:
+            pass # Fall through to local env vars if not running in Streamlit
+            
+        # Fallback for local environment
         key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
         if key_path:
             return firestore.Client.from_service_account_json(key_path)
@@ -29,15 +39,31 @@ def get_firestore_client():
         return None
 
 def get_gemini_client():
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key:
-        return genai.Client(api_key=api_key)
-    
-    project_id = os.getenv("GCP_PROJECT_ID")
-    if project_id:
-        return genai.Client(vertexai=True, project=project_id, location=os.getenv("GCP_LOCATION", "us-central1"))
-    
-    return genai.Client()
+    """Initializes Gemini using Streamlit secrets or local env variables."""
+    try:
+        api_key = None
+        # Safely check secrets first
+        try:
+            api_key = st.secrets.get("GEMINI_API_KEY")
+        except Exception:
+            pass
+        
+        # Fallback to local environment
+        if not api_key:
+            api_key = os.getenv("GEMINI_API_KEY")
+
+        if api_key:
+            return genai.Client(api_key=api_key)
+        
+        # GCP Vertex fallback
+        project_id = os.getenv("GCP_PROJECT_ID")
+        if project_id:
+            return genai.Client(vertexai=True, project=project_id, location=os.getenv("GCP_LOCATION", "us-central1"))
+        
+        return genai.Client()
+    except Exception as e:
+        logging.error(f"Gemini Initialization Error: {e}")
+        return None
 
 db = get_firestore_client()
 genai_client = get_gemini_client()
@@ -51,7 +77,6 @@ def fetch_ai_profile(deposit_id):
     logging.info(f"Fetching ai_profiles for deposit: {deposit_id}...")
     
     profile_ref = db.collection('mrds_feedstock_profiles').document(deposit_id).collection('ai_profiles')
-    # Using descending order to grab the most recent profile if multiple exist
     docs = profile_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(1).stream()
     
     profile_data = {}
@@ -68,6 +93,7 @@ def discover_assay_documents(profile_data):
     target_model = 'gemini-2.5-flash'
     context_str = json.dumps(profile_data, indent=2)
     
+    # Includes the 2010+ temporal constraints and APA 7 citation requirements
     prompt = f"""
     You are an expert metallurgical data engineer and mining researcher. 
     Below is the AI profile context for a targeted mining site.
@@ -150,8 +176,13 @@ def upsert_documents_to_firestore(deposit_id, documents):
 def run_discovery_pipeline(deposit_id):
     """
     Wrapper function intended to be called by an st.button in your Streamlit dashboard.
-    Returns True if successful, False if no context was found.
+    Returns True if successful, False if no context was found or connections failed.
     """
+    # Safety Check to prevent NoneType attribute errors
+    if db is None or genai_client is None:
+        logging.error("Cloud clients failed to initialize. Cannot run discovery pipeline.")
+        return False
+
     profile_data = fetch_ai_profile(deposit_id)
     if not profile_data:
         return False
