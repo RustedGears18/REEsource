@@ -301,7 +301,7 @@ def main():
                     
                 st.markdown(profile_data.get('content'))
                 
-                model_used = profile_data.get('model_used', 'gemini-2.5-pro')
+                model_used = profile_data.get('model_used', 'gemini-2.5-flash')
                 st.caption(f"✨ *This Geological Site Profile was compiled by Google {model_used} on {profile_data.get('created_at')}*")
                 
                 btn_color = "#81c784"
