@@ -21,7 +21,6 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="document_discovery.py" />
     <Compile Include="ingest_mrds.py" />
     <Compile Include="pages\1_Assay_Documents.py" />
     <Compile Include="preload_co_profiles.py" />
