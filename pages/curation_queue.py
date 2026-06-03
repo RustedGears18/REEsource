@@ -1,14 +1,35 @@
+import os
+import json
 import streamlit as st
 from google.cloud import firestore
 import urllib.parse
-
-# Initialize Firestore
-db = firestore.Client()
 
 st.set_page_config(page_title="Admin Curation Queue", layout="centered", page_icon="🗂️")
 
 st.title("🗂️ Assay Document Curation")
 st.caption("Admin-only queue to review unstructured documents before Gemini Pro extraction.")
+
+# --- FIRESTORE INITIALIZATION ---
+@st.cache_resource
+def get_firestore_client():
+    """Initializes Firestore using Streamlit secrets or local env variables."""
+    try:
+        if "gcp_service_account" in st.secrets:
+            # Running on Streamlit Cloud
+            creds_dict = json.loads(st.secrets["gcp_service_account"])
+            return firestore.Client.from_service_account_info(creds_dict)
+        else:
+            # Running locally
+            key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            return firestore.Client.from_service_account_json(key_path) if key_path else firestore.Client()
+    except Exception as e:
+        st.error(f"Firestore Initialization Error: {e}")
+        return None
+
+db = get_firestore_client()
+
+if db is None:
+    st.stop() # Halt execution if the database fails to connect
 
 # --- SIMPLE ADMIN AUTHENTICATION ---
 def check_password():
