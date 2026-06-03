@@ -10,6 +10,9 @@ from datetime import datetime
 from google import genai
 from dotenv import load_dotenv
 
+# --- NEW IMPORT ---
+from document_discovery import run_discovery_pipeline
+
 load_dotenv()
 
 st.set_page_config(
@@ -132,7 +135,11 @@ def generate_ai_profile(deposit_data):
     }}
     """
     
-    response = client.models.generate_content(model=target_model, contents=prompt)
+    # Using the updated SDK typing for consistency
+    response = client.models.generate_content(
+        model=target_model, 
+        contents=prompt
+    )
     raw_text = response.text.strip()
     if raw_text.startswith("```json"):
         raw_text = raw_text.split("```json", 1)[1].rsplit("```", 1)[0].strip()
@@ -215,32 +222,27 @@ def main():
         )
 
     # --- STATIC MAP CENTERING ---
-    # Centered squarely over Colorado (Park County area)
     static_center = [39.0, -105.5]
     static_zoom = 7
 
     m = folium.Map(location=static_center, zoom_start=static_zoom, tiles=None)
 
     # --- STATIC LAYER RENDERING ---
-    # 1. Esri World Topo (Always Default)
     folium.TileLayer(
         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
         attr='Esri', name='Esri Topographic', control=True, show=True
     ).add_to(m)
 
-    # 2. Esri Satellite Imagery
     folium.TileLayer(
         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attr='Esri', name='Satellite Imagery', control=True, show=False
     ).add_to(m)
 
-    # 3. USGS The National Map
     folium.TileLayer(
         tiles='https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
         attr='USGS The National Map', name='USGS Topo', control=True, show=False
     ).add_to(m)
 
-    # 4. Light Basemap
     folium.TileLayer('CartoDB positron', name='Light Basemap', control=True, show=False).add_to(m)
     
     folium.LayerControl().add_to(m)
@@ -250,7 +252,6 @@ def main():
         sides, rot = get_mrds_symbology(row.get('operational_category'))
         summary = row.get('feedstock_summary', 'No summary available.')
         
-        # Injected the gray italicized note into the bottom of the tooltip
         tooltip_text = f"<b>{row.get('deposit_name', 'Unknown')}</b><br>" \
                        f"State: {row.get('state', 'Unknown')}<br>" \
                        f"Status: {row.get('operational_category', 'Unknown')}<br><br>" \
@@ -272,10 +273,8 @@ def main():
             opacity=1.0
         ).add_to(m)
 
-    # Render Map (Horizontal scale handled natively via use_container_width=True)
     st_data = st_folium(m, use_container_width=True, returned_objects=["last_object_clicked_tooltip"])
     
-    # Instruction moved below the map
     st.caption("USGS 'Grade A' Mine data only; filter the map or click on a deposit for more information.")
 
     # --- DEPOSIT DETAILS (CONDITIONAL) ---
@@ -286,14 +285,12 @@ def main():
         selected_deposit = target_deposit
 
     if selected_deposit:
-        # Trigger Toast Notification on new selection
         if selected_deposit != st.session_state['last_viewed_deposit']:
             st.toast(f"Data loaded for {selected_deposit}! Scroll down to view.", icon="⬇️")
             st.session_state['last_viewed_deposit'] = selected_deposit
             
         st.divider()
         
-        # Visually Highlighted Header Block
         st.markdown(
             f"""
             <div style="padding: 1.5rem; background-color: rgba(21, 101, 192, 0.05); border-left: 6px solid #1565c0; border-radius: 0.5rem; margin-bottom: 1.5rem;">
@@ -325,42 +322,56 @@ def main():
                 model_used = profile_data.get('model_used', 'gemini-2.5-flash')
                 st.caption(f"✨ *This Geological Site Profile was compiled by Google {model_used} on {profile_data.get('created_at')}*")
                 
-                btn_color = "#81c784"
-                btn_text = "Refresh Generative Site Profile"
+                # --- ACTION BUTTONS (COLUMNS) ---
+                st.write("### AI Agent Actions")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Streamlit native primary button styling is cleaner than injecting custom CSS 
+                    # but we will use type="secondary" here so the document search stands out.
+                    if st.button("🔄 Refresh Generative Profile", type="secondary", use_container_width=True):
+                        with st.spinner("Querying model and screening public datasets...(may take up to 60 seconds)"):
+                            try:
+                                ai_data = generate_ai_profile(target_data)
+                                subcol_ref.add({
+                                    'content': ai_data.get('profile_content', ''),
+                                    'ree_estimate': ai_data.get('ree_estimate', ''),
+                                    'model_used': ai_data.get('model_used', 'Unknown Model'),
+                                    'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                })
+                                st.success("Analysis complete. Data committed to Firestore subcollection.")
+                                st.rerun()
+                            except Exception as gen_err:
+                                st.error(f"GenAI Token or Parsing Error: {gen_err}")
+                
+                with col2:
+                    # The new document discovery trigger
+                    if st.button("🔍 Search Unstructured Assay Docs", type="primary", use_container_width=True):
+                        with st.spinner("Dispatching Gemini to identify high-probability ICP-MS document targets..."):
+                            success = run_discovery_pipeline(doc_id)
+                            if success:
+                                st.success("Document discovery complete! Check Firestore ('assay_documents' collection) for pending reviews.")
+                            else:
+                                st.error("Discovery failed. Ensure the AI profile context exists and Firestore is connected.")
             else:
                 st.info("No detailed intelligence summary exists in the Firestore ledger for this deposit.")
-                btn_color = "#2e7d32" 
-                btn_text = "Execute Generative Site Profile"
                 
-            st.markdown(f"""
-                <style>
-                div.stButton > button:first-child {{
-                    background-color: {btn_color};
-                    color: white;
-                    border: none;
-                }}
-                div.stButton > button:first-child:hover {{
-                    background-color: #1b5e20;
-                    color: white;
-                }}
-                </style>
-            """, unsafe_allow_html=True)
-                
-            if st.button(btn_text):
-                with st.spinner("Querying model and screening public datasets...(may take up to 60 seconds to refresh)"):
-                    try:
-                        ai_data = generate_ai_profile(target_data)
-                        
-                        subcol_ref.add({
-                            'content': ai_data.get('profile_content', ''),
-                            'ree_estimate': ai_data.get('ree_estimate', ''),
-                            'model_used': ai_data.get('model_used', 'Unknown Model'),
-                            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        })
-                        st.success("Analysis complete. Data committed to Firestore subcollection.")
-                        st.rerun()
-                    except Exception as gen_err:
-                        st.error(f"GenAI Token or Parsing Error: {gen_err}")
+                # If no profile exists, they can only generate one (can't search for docs yet)
+                if st.button("Execute Generative Site Profile", type="primary"):
+                    with st.spinner("Querying model and screening public datasets...(may take up to 60 seconds)"):
+                        try:
+                            ai_data = generate_ai_profile(target_data)
+                            
+                            subcol_ref.add({
+                                'content': ai_data.get('profile_content', ''),
+                                'ree_estimate': ai_data.get('ree_estimate', ''),
+                                'model_used': ai_data.get('model_used', 'Unknown Model'),
+                                'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            })
+                            st.success("Analysis complete. Data committed to Firestore subcollection.")
+                            st.rerun()
+                        except Exception as gen_err:
+                            st.error(f"GenAI Token or Parsing Error: {gen_err}")
 
     # --- SPECIFICATIONS MASTER DATA TABLE ---
     st.divider()
@@ -385,6 +396,56 @@ def main():
         hide_index=True,
         width="stretch"
     )
+
+    # --- NEW: DOCUMENT DISCOVERY PIPELINE VISIBILITY ---
+    st.divider()
+    
+    colA, colB = st.columns([3, 1])
+    with colA:
+        st.subheader("Unstructured Document Pipeline Status")
+        st.caption("Visibility into the automated Gemini 2.5 Flash agent's discovery queue.")
+    with colB:
+        # Native Streamlit navigation link to your new page
+        st.page_link("pages/curation_queue.py", label="Admin: Open Curation Queue", icon="🔐")
+
+    @st.cache_data(ttl=300) # Cache for 5 mins to limit Firestore reads
+    def fetch_assay_documents_status():
+        try:
+            docs = db.collection('assay_documents').stream()
+            doc_list = []
+            for d in docs:
+                data = d.to_dict()
+                # Clean up the output for public viewing
+                doc_list.append({
+                    "Document Title": data.get('document_title', 'Unknown'),
+                    "Year": data.get('publication_year', 'N/A'),
+                    "Agency": data.get('source_agency', 'N/A'),
+                    "Status": data.get('ingestion_status', 'Unknown').replace('_', ' ').title(),
+                    "MRDS Tags": ", ".join(data.get('tags', []))
+                })
+            return pd.DataFrame(doc_list)
+        except Exception as e:
+            return pd.DataFrame()
+
+    pipeline_df = fetch_assay_documents_status()
+    
+    if not pipeline_df.empty:
+        # Apply color coding to the Status column based on the pipeline stage
+        def color_status(val):
+            color = 'black'
+            if 'Pending' in val: color = 'orange'
+            elif 'Approved' in val: color = 'green'
+            elif 'Rejected' in val: color = 'red'
+            elif 'Extracted' in val: color = 'blue'
+            return f'color: {color}'
+            
+        st.dataframe(
+            pipeline_df.style.map(color_status, subset=['Status']),
+            hide_index=True,
+            width="stretch"
+        )
+    else:
+        st.info("No unstructured documents have been discovered by the AI agent yet.")
 
 if __name__ == "__main__":
     main()
