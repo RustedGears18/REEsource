@@ -4,8 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>0a885820-d661-47dc-9a5a-8480c1aee26b</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>
-    </StartupFile>
+    <StartupFile>preload_co_profiles.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -23,6 +22,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="ingest_mrds.py" />
+    <Compile Include="preload_co_profiles.py" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include=".streamlit\" />

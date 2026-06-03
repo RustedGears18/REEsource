@@ -18,6 +18,22 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- RESPONSIVE CSS INJECTION (MARGIN & MAP SCALING) ---
+st.markdown(
+    """
+    <style>
+    .block-container {
+        padding-top: 1.5rem !important;
+        padding-bottom: 1.5rem !important;
+    }
+    iframe {
+        height: 82vh !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 # --- BRANDING & ASSETS ---
 logo_path = os.path.join("assets", "REEsource brand dark.png")
 if os.path.exists(logo_path):
@@ -84,12 +100,7 @@ def get_mrds_symbology(status):
         return 30, 0  
 
 def generate_ai_profile(deposit_data):
-    """
-    Forces the LLM to output a strict JSON string separating the markdown profile 
-    from the targeted REE estimation.
-    """
     api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
-    
     if api_key:
         client = genai.Client(api_key=api_key)
     else:
@@ -111,7 +122,7 @@ def generate_ai_profile(deposit_data):
     4. Prioritize sources from the USGS, Department of the Interior (DOI), and Army Corps of Engineers. Avoid pay-wall blocked sources entirely.
     5. Include a specific section titled "Environmental Issues and Ethics Concerns" (under 250 words, using up to 2 of the most relevant unbiased sources).
     6. Include a specific section titled "Recent Developments" (under 250 words, using up to 2 of the most relevant unbiased sources).
-    7. NO CONVERSATIONAL FILLER. Do not include phrases like "Here is the profile" or "Sure, I can help".
+    7. NO CONVERSATIONAL FILLER.
     
     CRITICAL OUTPUT FORMAT:
     You must return your ENTIRE response as a valid JSON object. Do not wrap it in markdown block quotes. The JSON must exactly match this structure:
@@ -119,24 +130,9 @@ def generate_ai_profile(deposit_data):
         "profile_content": "<The full markdown formatted 1000-word profile including all sections and sources.>",
         "ree_estimate": "<Based explicitly on the Geological Setting and Mineralogy sections of your profile, provide a 2-3 sentence estimation of the viability and potential presence of Rare Earth Elements (REEs) in this deposit.>"
     }}
-    
-    Available Site Context:
-    - Deposit Type: {deposit_data.get('geology', {}).get('deposit_type')}
-    - Operational Status: {deposit_data.get('operational_category')}
-    - Size: {deposit_data.get('production_size')}
-    - Primary Commodities: {', '.join(deposit_data.get('primary_commodities', []))}
-    - Secondary Commodities: {', '.join(deposit_data.get('secondary_commodities', []))}
-    - Ore Minerals: {deposit_data.get('ore_minerals')}
-    - Gangue: {deposit_data.get('gangue_materials')}
-    - Host Rock Type: {deposit_data.get('geology', {}).get('host_rock_type')}
     """
     
-    response = client.models.generate_content(
-        model=target_model,
-        contents=prompt
-    )
-    
-    # Safely strip potential markdown blocks from the JSON string
+    response = client.models.generate_content(model=target_model, contents=prompt)
     raw_text = response.text.strip()
     if raw_text.startswith("```json"):
         raw_text = raw_text.split("```json", 1)[1].rsplit("```", 1)[0].strip()
@@ -148,15 +144,9 @@ def generate_ai_profile(deposit_data):
     return parsed_json
 
 def main():
-    st.title("REEsource: MRDS Feedstock Intelligence")
-    st.markdown("### *Unearthing tomorrow's critical mineral supply*")
-    
-    st.info(
-        "**Critical Mineral:** A non-fuel mineral or mineral material essential to the economic and "
-        "national security of the United States, the supply chain of which is vulnerable to disruption.\n\n"
-        "**Rare Earth Element (REE):** A set of 17 chemically similar metallic elements (the 15 lanthanides "
-        "plus scandium and yttrium), critical for high-tech, defense, and advanced metallurgical applications."
-    )
+    # Initialize session state for tracking toasts
+    if 'last_viewed_deposit' not in st.session_state:
+        st.session_state['last_viewed_deposit'] = None
 
     with st.spinner("Connecting to Google Cloud Firestore..."):
         df = fetch_firestore_data()
@@ -169,20 +159,29 @@ def main():
     filtered_df = df.copy()
 
     # --- SIDEBAR SEARCH & FILTERS ---
-    st.sidebar.header("Search")
+    st.sidebar.header("Explore Filters")
     search_list = ['None'] + sorted(filtered_df['deposit_name'].dropna().unique().tolist())
     target_deposit = st.sidebar.selectbox("Find Specific Deposit...", search_list)
     
-    st.sidebar.header("Location Filters")
-    available_states = ['All US'] + sorted([s for s in filtered_df['state'].dropna().unique().tolist() if s not in ['None', 'UNKNOWN']])
+    st.sidebar.subheader("Location")
     
+    raw_states = df['state'].dropna().unique().tolist()
+    cleaned_states = set()
+    for s in raw_states:
+        if s not in ['None', 'UNKNOWN']:
+            for part in s.split(','):
+                clean_part = part.strip().upper()
+                if clean_part:
+                    cleaned_states.add(clean_part)
+                    
+    available_states = ['All US'] + sorted(list(cleaned_states))
     default_state_index = available_states.index('COLORADO') if 'COLORADO' in available_states else 0
     selected_state = st.sidebar.selectbox("Select State", available_states, index=default_state_index)
 
     if selected_state != 'All US':
-        filtered_df = filtered_df[filtered_df['state'] == selected_state]
+        filtered_df = filtered_df[filtered_df['state'].fillna('').str.contains(selected_state)]
 
-    st.sidebar.header("Operational Filters")
+    st.sidebar.subheader("Operations")
     categories = ['All'] + sorted(filtered_df['operational_category'].dropna().unique().tolist())
     selected_category = st.sidebar.selectbox("Viability / Development Status", categories)
 
@@ -197,8 +196,15 @@ def main():
 
     st.sidebar.metric(label="Visible Targets", value=len(filtered_df))
 
-    # --- ABOUT EXPANDER ---
+    # --- SIDEBAR EXPANDERS ---
     st.sidebar.markdown("---")
+    
+    with st.sidebar.expander("📖 Quick Definitions"):
+        st.markdown("**Critical Mineral:**")
+        st.write("A non-fuel mineral or mineral material essential to the economic and national security of the United States, the supply chain of which is vulnerable to disruption.")
+        st.markdown("**Rare Earth Element (REE):**")
+        st.write("A set of 17 chemically similar metallic elements (the 15 lanthanides plus scandium and yttrium), critical for high-tech, defense, and advanced metallurgical applications.")
+
     with st.sidebar.expander("ℹ️ About REEsource"):
         st.markdown(
             "**REEsource** was developed as a capstone project for the Master of Science "
@@ -208,49 +214,48 @@ def main():
             "🔗 [View the Project on GitHub](https://github.com/RustedGears18/REEsource)"
         )
 
-    # --- DYNAMIC ZOOM LOGIC ---
-    if target_deposit != 'None':
-        target_row = df[df['deposit_name'] == target_deposit].iloc[0]
-        map_center = [target_row['latitude'], target_row['longitude']]
-        zoom_level = 12
-    elif not filtered_df.empty:
-        map_center = [filtered_df['latitude'].mean(), filtered_df['longitude'].mean()]
-        zoom_level = 7 if selected_state != 'All US' else 4
-    else:
-        map_center = [39.8283, -98.5795]
-        zoom_level = 4
+    # --- STATIC MAP CENTERING ---
+    # Centered squarely over Colorado (Park County area)
+    static_center = [39.0, -105.5]
+    static_zoom = 7
 
-    m = folium.Map(location=map_center, zoom_start=zoom_level, tiles=None)
+    m = folium.Map(location=static_center, zoom_start=static_zoom, tiles=None)
 
-    # 1. Esri Satellite Layer (Default for high contrast with markers)
+    # --- STATIC LAYER RENDERING ---
+    # 1. Esri World Topo (Always Default)
+    folium.TileLayer(
+        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+        attr='Esri', name='Esri Topographic', control=True, show=True
+    ).add_to(m)
+
+    # 2. Esri Satellite Imagery
     folium.TileLayer(
         tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        attr='Esri',
-        name='Satellite Imagery (Default)',
-        control=True
+        attr='Esri', name='Satellite Imagery', control=True, show=False
     ).add_to(m)
 
-    # 2. USGS Topo Layer
+    # 3. USGS The National Map
     folium.TileLayer(
         tiles='https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
-        attr='USGS The National Map',
-        name='USGS Topo',
-        control=True
+        attr='USGS The National Map', name='USGS Topo', control=True, show=False
     ).add_to(m)
 
-    # 3. CartoDB Positron
-    folium.TileLayer('CartoDB positron', name='Light Basemap', control=True).add_to(m)
+    # 4. Light Basemap
+    folium.TileLayer('CartoDB positron', name='Light Basemap', control=True, show=False).add_to(m)
     
     folium.LayerControl().add_to(m)
 
+    # Map Markers
     for _, row in filtered_df.iterrows():
         sides, rot = get_mrds_symbology(row.get('operational_category'))
         summary = row.get('feedstock_summary', 'No summary available.')
         
+        # Injected the gray italicized note into the bottom of the tooltip
         tooltip_text = f"<b>{row.get('deposit_name', 'Unknown')}</b><br>" \
                        f"State: {row.get('state', 'Unknown')}<br>" \
                        f"Status: {row.get('operational_category', 'Unknown')}<br><br>" \
-                       f"<i>{summary}</i>"
+                       f"<i>{summary}</i><br><br>" \
+                       f"<span style='color: gray; font-style: italic; font-size: 0.9em;'>*see more information below</span>"
                        
         folium.RegularPolygonMarker(
             location=[row['latitude'], row['longitude']],
@@ -259,21 +264,21 @@ def main():
             radius=7 if sides < 30 else 5.5, 
             popup=folium.Popup(tooltip_text, max_width=350),
             tooltip=row.get('deposit_name', 'Unknown'),
-            color="#1565c0",      # Darker blue border for crisp contrast
+            color="#1565c0",
             weight=1.5,
             fill=True,
             fill_color="#3186cc",
-            fill_opacity=1.0,     # 100% solid opacity
-            opacity=1.0           # 100% solid border
+            fill_opacity=1.0,
+            opacity=1.0
         ).add_to(m)
 
-    # --- RENDER MAP ---
-    st_data = st_folium(m, width=1200, height=500, returned_objects=["last_object_clicked_tooltip"])
-
-    # --- UI INTERMEDIATE CONTAINER: AI PROFILE ---
-    st.divider()
-    st.subheader("AI Feedstock Profile Engine")
+    # Render Map (Horizontal scale handled natively via use_container_width=True)
+    st_data = st_folium(m, use_container_width=True, returned_objects=["last_object_clicked_tooltip"])
     
+    # Instruction moved below the map
+    st.caption("USGS 'Grade A' Mine data only; filter the map or click on a deposit for more information.")
+
+    # --- DEPOSIT DETAILS (CONDITIONAL) ---
     selected_deposit = None
     if st_data and st_data.get('last_object_clicked_tooltip'):
         selected_deposit = st_data['last_object_clicked_tooltip']
@@ -281,13 +286,29 @@ def main():
         selected_deposit = target_deposit
 
     if selected_deposit:
+        # Trigger Toast Notification on new selection
+        if selected_deposit != st.session_state['last_viewed_deposit']:
+            st.toast(f"Data loaded for {selected_deposit}! Scroll down to view.", icon="⬇️")
+            st.session_state['last_viewed_deposit'] = selected_deposit
+            
+        st.divider()
+        
+        # Visually Highlighted Header Block
+        st.markdown(
+            f"""
+            <div style="padding: 1.5rem; background-color: rgba(21, 101, 192, 0.05); border-left: 6px solid #1565c0; border-radius: 0.5rem; margin-bottom: 1.5rem;">
+                <h2 style="margin-top: 0; margin-bottom: 0.5rem; color: #1565c0;">Deposit Details</h2>
+                <span style="color: #424242; font-size: 1.1em;">Target View: <strong>{selected_deposit}</strong></span>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+        
         selected_row = df[df['deposit_name'] == selected_deposit]
         
         if not selected_row.empty:
             target_data = selected_row.iloc[0].to_dict()
             doc_id = target_data['site_id']
-            
-            st.write(f"### Target View: **{selected_deposit}**")
             
             subcol_ref = db.collection('mrds_feedstock_profiles').document(doc_id).collection('ai_profiles')
             existing_profiles = list(subcol_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(1).stream())
@@ -340,10 +361,8 @@ def main():
                         st.rerun()
                     except Exception as gen_err:
                         st.error(f"GenAI Token or Parsing Error: {gen_err}")
-    else:
-        st.write("*Click a map marker or choose a deposit from the sidebar search to execute dynamic deep-dive analysis.*")
 
-    # --- UI PINNED TO BOTTOM: SPECIFICATIONS MASTER DATA TABLE ---
+    # --- SPECIFICATIONS MASTER DATA TABLE ---
     st.divider()
     st.subheader("Extracted Site Specifications (Filtered Universe)")
     st.dataframe(
