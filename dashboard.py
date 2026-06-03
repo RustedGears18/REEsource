@@ -415,55 +415,5 @@ def main():
         width="stretch"
     )
 
-    # --- NEW: DOCUMENT DISCOVERY PIPELINE VISIBILITY ---
-    st.divider()
-    
-    colA, colB = st.columns([3, 1])
-    with colA:
-        st.subheader("Unstructured Document Pipeline Status")
-        st.caption("Visibility into the automated Gemini 2.5 Flash agent's discovery queue.")
-    with colB:
-        # Native Streamlit navigation link to your new page
-        st.page_link("pages/curation_queue.py", label="Admin: Open Curation Queue", icon="🔐")
-
-    @st.cache_data(ttl=300) # Cache for 5 mins to limit Firestore reads
-    def fetch_assay_documents_status():
-        try:
-            docs = db.collection('assay_documents').stream()
-            doc_list = []
-            for d in docs:
-                data = d.to_dict()
-                # Clean up the output for public viewing
-                doc_list.append({
-                    "Document Title": data.get('document_title', 'Unknown'),
-                    "Year": data.get('publication_year', 'N/A'),
-                    "Agency": data.get('source_agency', 'N/A'),
-                    "Status": data.get('ingestion_status', 'Unknown').replace('_', ' ').title(),
-                    "MRDS Tags": ", ".join(data.get('tags', []))
-                })
-            return pd.DataFrame(doc_list)
-        except Exception as e:
-            return pd.DataFrame()
-
-    pipeline_df = fetch_assay_documents_status()
-    
-    if not pipeline_df.empty:
-        # Apply color coding to the Status column based on the pipeline stage
-        def color_status(val):
-            color = 'black'
-            if 'Pending' in val: color = 'orange'
-            elif 'Approved' in val: color = 'green'
-            elif 'Rejected' in val: color = 'red'
-            elif 'Extracted' in val: color = 'blue'
-            return f'color: {color}'
-            
-        st.dataframe(
-            pipeline_df.style.map(color_status, subset=['Status']),
-            hide_index=True,
-            width="stretch"
-        )
-    else:
-        st.info("No unstructured documents have been discovered by the AI agent yet.")
-
 if __name__ == "__main__":
     main()
