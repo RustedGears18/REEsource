@@ -8,7 +8,6 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
-# Suppress verbose Google API logging 
 logging.getLogger("google").setLevel(logging.WARNING)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -19,17 +18,14 @@ load_dotenv()
 # ==========================================
 
 def get_firestore_client():
-    """Initializes Firestore using Streamlit secrets or fallback pathing."""
     try:
-        # Check for Streamlit secrets first (for cloud deployment)
         try:
             if "gcp_service_account" in st.secrets:
                 creds_dict = json.loads(st.secrets["gcp_service_account"])
                 return firestore.Client.from_service_account_info(creds_dict)
         except Exception:
-            pass # Fall through to local env vars if not running in Streamlit
+            pass 
             
-        # Fallback for local environment
         key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
         if key_path:
             return firestore.Client.from_service_account_json(key_path)
@@ -39,23 +35,19 @@ def get_firestore_client():
         return None
 
 def get_gemini_client():
-    """Initializes Gemini using Streamlit secrets or local env variables."""
     try:
         api_key = None
-        # Safely check secrets first
         try:
             api_key = st.secrets.get("GEMINI_API_KEY")
         except Exception:
             pass
         
-        # Fallback to local environment
         if not api_key:
             api_key = os.getenv("GEMINI_API_KEY")
 
         if api_key:
             return genai.Client(api_key=api_key)
         
-        # GCP Vertex fallback
         project_id = os.getenv("GCP_PROJECT_ID")
         if project_id:
             return genai.Client(vertexai=True, project=project_id, location=os.getenv("GCP_LOCATION", "us-central1"))
@@ -73,9 +65,7 @@ genai_client = get_gemini_client()
 # ==========================================
 
 def fetch_ai_profile(deposit_id):
-    """Retrieves the ai_profiles subcollection data for a given MRDS deposit."""
     logging.info(f"Fetching ai_profiles for deposit: {deposit_id}...")
-    
     profile_ref = db.collection('mrds_feedstock_profiles').document(deposit_id).collection('ai_profiles')
     docs = profile_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(1).stream()
     
@@ -85,17 +75,15 @@ def fetch_ai_profile(deposit_id):
         
     if not profile_data:
         logging.warning(f"No ai_profiles found for {deposit_id}.")
-    
     return profile_data
 
 def discover_assay_documents(profile_data):
-    """Uses Gemini 2.5 Flash to identify likely unstructured ICP-MS assay documents."""
+    """Uses Gemini 2.5 Flash to generate advanced search strategies for ICP-MS data."""
     target_model = 'gemini-2.5-flash'
     context_str = json.dumps(profile_data, indent=2)
     
-    # Includes the 2010+ temporal constraints and APA 7 citation requirements
     prompt = f"""
-    You are an expert metallurgical data engineer and mining researcher. 
+    You are an expert metallurgical data engineer and research librarian. 
     Below is the AI profile context for a targeted mining site.
     
     SITE CONTEXT:
@@ -105,22 +93,15 @@ def discover_assay_documents(profile_data):
     This site was historically mined for a primary ore. However, it is highly probable that the resulting tailings, waste rock, or associated wastewaters have elevated Rare Earth Element (REE) concentrations.
     
     YOUR TASK:
-    Identify 3 to 5 specific, real-world documents (PDFs, CSVs, technical reports, USGS Open-File Reports, environmental assessments) that are highly likely to contain unstructured ICP-MS assay data for this site.
-    
-    STRICT TEMPORAL CONSTRAINTS:
-    - You MUST ONLY return documents published in the year 2010 or later.
-    - Prioritize documents published from 2015 to the present day. 
-    - Do not return historical, non-digitized reports from before 2010.
+    DO NOT invent or hallucinate specific document titles, authors, or citations. You do not have live internet access.
+    Instead, generate 3 to 5 highly specific, advanced Google Search queries (Google Dorks) designed to uncover real-world unstructured ICP-MS assay data, tailings reports, or REE concentration measurements for this specific site published after 2010.
     
     OUTPUT FORMAT:
     You must return a valid JSON array of objects. Each object must have the following keys:
-    - "document_title": (string) The likely formal title or name of the report/dataset.
-    - "source_agency": (string) e.g., "USGS", "EPA", "Colorado DRMS", "Academic".
-    - "publication_year": (integer) The year the document was published or last updated. Must be >= 2010.
-    - "source_citation": (string) A full, structured APA 7 reference for this document.
-    - "likely_format": (string) e.g., "PDF", "CSV", "Excel".
-    - "relevance_justification": (string) Why this document likely contains ICP-MS REE data based on the site context.
-    - "search_query": (string) A highly optimized Google search string to locate this exact document.
+    - "target_document_type": (string) e.g., "USGS Open-File Report", "EPA Superfund Record of Decision", "Academic Thesis".
+    - "search_strategy_rationale": (string) Why this specific search strategy is likely to yield REE assay data for this site.
+    - "optimized_google_dork": (string) An advanced Google search string utilizing operators (e.g., `"Urad Mine" AND ("ICP-MS" OR "rare earth") filetype:pdf site:usgs.gov`).
+    - "publication_year_target": (string) "Post-2010" or "Post-2015".
     """
 
     try:
@@ -137,7 +118,6 @@ def discover_assay_documents(profile_data):
         return []
 
 def upsert_documents_to_firestore(deposit_id, documents):
-    """Ingests new documents or appends the deposit_id to existing ones."""
     if not documents:
         logging.warning("No documents to ingest.")
         return
@@ -147,38 +127,28 @@ def upsert_documents_to_firestore(deposit_id, documents):
     count_updated = 0
     
     for doc in documents:
-        # Create a deterministic ID based on the document title to handle deduplication
-        doc_hash = hashlib.md5(doc['document_title'].encode('utf-8')).hexdigest()
+        # Use the google dork as the unique hash to prevent duplicate search strategies
+        doc_hash = hashlib.md5(doc['optimized_google_dork'].encode('utf-8')).hexdigest()
         doc_ref = collection_ref.document(doc_hash)
         
         existing_doc = doc_ref.get()
         
         if existing_doc.exists:
-            # Native GCP Firestore array union
             doc_ref.update({
                 'tags': firestore.ArrayUnion([deposit_id])
             })
             count_updated += 1
         else:
-            # New document ingestion
             doc['tags'] = [deposit_id]
             doc['ingestion_status'] = 'pending_manual_review' 
+            doc['verified_url'] = "" # Initialize empty for manual data entry later
             doc['created_at'] = firestore.SERVER_TIMESTAMP
             doc_ref.set(doc)
             count_new += 1
             
-    logging.info(f"Success: {count_new} new docs added, {count_updated} existing docs tagged with {deposit_id}.")
-
-# ==========================================
-# Streamlit Dashboard Wrapper Function
-# ==========================================
+    logging.info(f"Success: {count_new} new strategies added, {count_updated} existing strategies tagged with {deposit_id}.")
 
 def run_discovery_pipeline(deposit_id):
-    """
-    Wrapper function intended to be called by an st.button in your Streamlit dashboard.
-    Returns True if successful, False if no context was found or connections failed.
-    """
-    # Safety Check to prevent NoneType attribute errors
     if db is None or genai_client is None:
         logging.error("Cloud clients failed to initialize. Cannot run discovery pipeline.")
         return False

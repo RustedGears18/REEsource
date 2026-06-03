@@ -10,7 +10,6 @@ st.set_page_config(page_title="Assay Documents", layout="wide", page_icon="📄"
 # --- FIRESTORE INITIALIZATION ---
 @st.cache_resource
 def get_firestore_client():
-    """Initializes Firestore using Streamlit secrets or local env variables."""
     try:
         if "gcp_service_account" in st.secrets:
             creds_dict = json.loads(st.secrets["gcp_service_account"])
@@ -29,7 +28,6 @@ if db is None:
 
 # --- SIDEBAR ADMIN AUTHENTICATION ---
 def check_admin_status():
-    """Renders a subtle login in the sidebar and returns True if authenticated."""
     if st.session_state.get("admin_authenticated", False):
         with st.sidebar:
             st.divider()
@@ -45,7 +43,7 @@ def check_admin_status():
         def password_entered():
             if st.session_state["pwd_input"] == st.secrets["admin_password"]:
                 st.session_state["admin_authenticated"] = True
-                del st.session_state["pwd_input"]  # Clean up memory
+                del st.session_state["pwd_input"] 
             else:
                 st.session_state["admin_authenticated"] = False
 
@@ -64,27 +62,26 @@ def fetch_all_documents():
     for d in docs:
         data = d.to_dict()
         doc_list.append({
-            'Title': data.get('document_title', 'Unknown'),
-            'Agency': data.get('source_agency', 'N/A'),
-            'Year': data.get('publication_year', 'N/A'),
+            'Target Document': data.get('target_document_type', 'Unknown'),
+            'Temporal Range': data.get('publication_year_target', 'N/A'),
+            'Tags': ", ".join(data.get('tags', [])),
             'Raw_Status': data.get('ingestion_status', 'Unknown')
         })
     return pd.DataFrame(doc_list)
 
-# Determine user state
 is_admin = check_admin_status()
 
-st.title("📄 Discovered Assay Documents")
-st.caption("A public repository of unstructured geological datasets and historical reports identified by the REEsource AI Agent.")
+st.title("📄 Unstructured Assay Discovery")
+st.caption("A public repository of advanced AI-generated search strategies designed to identify REE concentrations in historical tailings.")
 
 # ==========================================
-# SECURE AREA: ACTIVE QUEUE (ONLY VISIBLE TO ADMINS)
+# SECURE AREA: ACTIVE QUEUE 
 # ==========================================
 if is_admin:
     st.markdown("""
         <div style="padding: 1rem; background-color: rgba(255, 193, 7, 0.1); border-left: 5px solid #FFC107; border-radius: 0.5rem; margin-bottom: 2rem;">
             <h3 style="margin-top: 0; color: #FFC107;">🗂️ Active Curation Queue</h3>
-            <span style="color: #E0E0E0;">Review unstructured documents before passing them to the extraction pipeline.</span>
+            <span style="color: #E0E0E0;">Execute strategies, verify document access, and ingest valid URLs for the extraction pipeline.</span>
         </div>
     """, unsafe_allow_html=True)
 
@@ -98,44 +95,53 @@ if is_admin:
             return data
         return None
 
-    def update_status(doc_id, new_status):
-        db.collection('assay_documents').document(doc_id).update({'ingestion_status': new_status})
-        fetch_all_documents.clear() # Force public table to update instantly
-
     pending_doc = fetch_pending_document()
 
     if pending_doc:
         with st.container(border=True):
-            st.markdown(f"#### {pending_doc.get('document_title', 'Unknown Title')}")
+            st.markdown(f"#### Target: {pending_doc.get('target_document_type', 'Unknown Document Type')}")
             
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Year", pending_doc.get('publication_year', 'N/A'))
-            col2.metric("Agency", pending_doc.get('source_agency', 'N/A'))
-            col3.metric("Format", pending_doc.get('likely_format', 'N/A'))
+            col1, col2 = st.columns(2)
+            col1.metric("Temporal Target", pending_doc.get('publication_year_target', 'N/A'))
+            col2.metric("Status", "Pending Search Execution")
             
-            st.markdown("**APA 7 Citation:**")
-            st.code(pending_doc.get('source_citation', 'Citation missing.'), language="markdown")
+            st.markdown("**Search Strategy Rationale:**")
+            st.write(pending_doc.get('search_strategy_rationale', 'No rationale provided.'))
             
-            st.markdown("**AI Relevance Justification:**")
-            st.write(pending_doc.get('relevance_justification', 'No justification provided.'))
+            st.markdown("**Optimized Google Dork:**")
+            query = pending_doc.get('optimized_google_dork', '')
+            st.code(query, language="sql")
             
-            query = pending_doc.get('search_query', pending_doc.get('document_title'))
             google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
-            st.markdown(f"🔍 **[Search Google for Document Source]({google_url})**")
+            st.markdown(f"### 🔍 **[Execute Targeted Search on Google]({google_url})**")
             
             st.divider()
             
+            # The URL Ingestion Field
+            verified_url = st.text_input("🔗 Verified Document URL (Paste here after searching):", placeholder="https://pubs.usgs.gov/...", help="Must be a direct link to the unstructured document.")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
             btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
+            
             with btn_col1:
-                if st.button("❌ Reject (Irrelevant)", type="secondary", use_container_width=True):
-                    update_status(pending_doc['doc_id'], 'rejected')
+                if st.button("❌ Reject Strategy (Dead End)", type="secondary", use_container_width=True):
+                    db.collection('assay_documents').document(pending_doc['doc_id']).update({'ingestion_status': 'rejected'})
+                    fetch_all_documents.clear()
                     st.rerun()
+                    
             with btn_col3:
-                if st.button("✅ Approve for Extraction", type="primary", use_container_width=True):
-                    update_status(pending_doc['doc_id'], 'approved_for_extraction')
-                    st.rerun()
+                if st.button("✅ Approve & Ingest URL", type="primary", use_container_width=True):
+                    if not verified_url:
+                        st.error("You must provide a verified URL to approve this strategy and move it to extraction.")
+                    else:
+                        db.collection('assay_documents').document(pending_doc['doc_id']).update({
+                            'ingestion_status': 'approved_for_extraction',
+                            'verified_url': verified_url
+                        })
+                        fetch_all_documents.clear()
+                        st.rerun()
     else:
-        st.success("🎉 The curation queue is empty! All pending documents have been reviewed.")
+        st.success("🎉 The curation queue is empty! All pending strategies have been reviewed.")
         
     st.divider()
 
@@ -146,25 +152,25 @@ df_docs = fetch_all_documents()
 
 if not df_docs.empty:
     status_map = {
-        'pending_manual_review': 'Unreviewed',
-        'approved_for_extraction': 'Approved',
-        'rejected': 'Rejected',
-        'ingested_into_data_model': 'Ingested into Data Model'
+        'pending_manual_review': 'Unreviewed Strategy',
+        'approved_for_extraction': 'URL Ingested (Approved)',
+        'rejected': 'Dead End (Rejected)',
+        'ingested_into_data_model': 'Extraction Complete'
     }
     df_docs['Status'] = df_docs['Raw_Status'].map(lambda x: status_map.get(x, x.replace('_', ' ').title()))
     
     def style_status(val):
-        if val == 'Unreviewed': return 'color: #FFC107; font-weight: bold;'
-        elif val == 'Approved': return 'color: #4CAF50; font-weight: bold;'
-        elif val == 'Rejected': return 'color: #9E9E9E; font-style: italic;'
-        elif val == 'Ingested into Data Model': return 'color: #2196F3; font-weight: bold;'
+        if val == 'Unreviewed Strategy': return 'color: #FFC107; font-weight: bold;'
+        elif val == 'URL Ingested (Approved)': return 'color: #4CAF50; font-weight: bold;'
+        elif val == 'Dead End (Rejected)': return 'color: #9E9E9E; font-style: italic;'
+        elif val == 'Extraction Complete': return 'color: #2196F3; font-weight: bold;'
         return ''
 
     st.subheader("📋 Pipeline Status Roster")
     st.dataframe(
-        df_docs[['Title', 'Year', 'Agency', 'Status']].style.map(style_status, subset=['Status']),
+        df_docs[['Target Document', 'Temporal Range', 'Tags', 'Status']].style.map(style_status, subset=['Status']),
         use_container_width=True,
         hide_index=True
     )
 else:
-    st.info("No unstructured documents have been discovered by the AI agent yet. Use the geospatial map to trigger a discovery search.")
+    st.info("No search strategies have been generated by the AI agent yet. Use the geospatial map to trigger a discovery search.")
