@@ -221,11 +221,29 @@ def main():
             "🔗 [View the Project on GitHub](https://github.com/RustedGears18/REEsource)"
         )
 
-    # --- STATIC MAP CENTERING ---
-    static_center = [39.0, -105.5]
-    static_zoom = 7
-
-    m = folium.Map(location=static_center, zoom_start=static_zoom, tiles=None)
+    # --- DYNAMIC MAP BOUNDING ---
+    if not filtered_df.empty:
+        # Find the geographic edges of the current filtered dataset
+        min_lat = filtered_df['latitude'].min()
+        max_lat = filtered_df['latitude'].max()
+        min_lon = filtered_df['longitude'].min()
+        max_lon = filtered_df['longitude'].max()
+        
+        # Calculate the mathematical center
+        center_lat = (min_lat + max_lat) / 2
+        center_lon = (min_lon + max_lon) / 2
+        
+        m = folium.Map(location=[center_lat, center_lon], tiles=None)
+        
+        # Instruct Folium to frame the map perfectly around these edges
+        m.fit_bounds(
+            [[min_lat, min_lon], [max_lat, max_lon]], 
+            padding=(30, 30),
+            max_zoom=12 # Prevents the map from uncomfortably deep-zooming if only a single mine is selected
+        )
+    else:
+        # Fallback to the geographic center of the US if filters yield zero results
+        m = folium.Map(location=[39.8283, -98.5795], zoom_start=4, tiles=None)
 
     # --- STATIC LAYER RENDERING ---
     folium.TileLayer(
