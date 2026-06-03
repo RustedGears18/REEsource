@@ -99,7 +99,7 @@ def generate_ai_profile(deposit_data):
         else:
             client = genai.Client()
             
-    target_model = 'gemini-2.5-pro'
+    target_model = 'gemini-2.5-flash'
     
     prompt = f"""
     You are an expert geological data analyst. Create a highly detailed site profile for the '{deposit_data['deposit_name']}' deposit in {deposit_data['state']}.
