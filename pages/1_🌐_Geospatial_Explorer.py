@@ -151,8 +151,8 @@ def main():
                     colormap_name=colormap, 
                     opacity=opacity, 
                     name=target_asset['proxy_metric'],
-                    rescale=f"{vmin},{vmax}",  # 🚨 THE FIX: Tells TiTiler the exact data range so it doesn't render transparently
-                    bidx=1                     # Explicitly pull Band 1
+                    rescale=f"{vmin},{vmax}",
+                    bidx=[1]  # 🚨 THE FIX: Wrap the band index in a list
                 )
                 
                 # 2. Overlay the Machine Learning Targets
