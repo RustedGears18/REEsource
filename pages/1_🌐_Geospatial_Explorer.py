@@ -1,4 +1,6 @@
 import os
+import json
+import tempfile
 from dotenv import load_dotenv
 
 # 1. LOAD LOCAL CREDENTIALS (Ignored by Streamlit Cloud)
@@ -11,31 +13,48 @@ import rasterio
 import streamlit as st
 from pyproj import Transformer
 from google.cloud import firestore
-from google.oauth2 import service_account
 import leafmap.foliumap as leafmap
 
 # Configure the page
 st.set_page_config(page_title="Geospatial Explorer", page_icon="🌐", layout="wide")
 
+# --- CLOUD AUTHENTICATION INJECTION ---
+@st.cache_resource
+def inject_gcp_credentials():
+    """
+    Writes Streamlit secrets to an ephemeral JSON file in the Linux container
+    so C++ engines (like GDAL/Rasterio) can natively authenticate to GCP.
+    """
+    # Check if we are in Streamlit Cloud and haven't already injected the key
+    if "gcp_service_account" in st.secrets and "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
+        # Create a secure temporary file
+        fd, path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, 'w') as f:
+            # Convert the Streamlit TOML secrets back into a standard Google JSON object
+            json.dump(dict(st.secrets["gcp_service_account"]), f)
+        
+        # Point the entire OS to this temp file
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+        return True
+    return False
+
+# Execute the injection immediately upon boot
+inject_gcp_credentials()
+
 # --- INITIALIZATION & CACHING ---
 @st.cache_resource
 def get_firestore_client():
-    """Initializes Firestore client securely for both Local and Cloud environments."""
+    """Initializes Firestore client. Magically authenticates in both Local and Cloud environments."""
     try:
-        # Check if we are running on Streamlit Cloud
-        if "gcp_service_account" in st.secrets:
-            creds = service_account.Credentials.from_service_account_info(
-                st.secrets["gcp_service_account"]
-            )
-            return firestore.Client(credentials=creds, project=creds.project_id)
-        else:
-            # Fallback for local development
-            return firestore.Client()
+        # Because we injected the credentials into the OS, we can just call Client() natively
+        return firestore.Client()
     except Exception as e:
         st.error(f"Firestore Initialization Error: {e}")
         return None
 
 db = get_firestore_client()
+
+# ... [THE REST OF YOUR SCRIPT REMAINS EXACTLY THE SAME FROM def fetch_surveys(): DOWNWARDS] ...
 
 def fetch_surveys():
     """Retrieves the parent Earth MRI surveys from Firestore."""
