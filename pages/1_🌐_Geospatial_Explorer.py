@@ -1,6 +1,7 @@
 import os
 import json
 import tempfile
+from datetime import timedelta
 from dotenv import load_dotenv
 
 # 1. LOAD LOCAL CREDENTIALS (Ignored by Streamlit Cloud)
@@ -12,7 +13,8 @@ import pandas as pd
 import rasterio
 import streamlit as st
 from pyproj import Transformer
-from google.cloud import firestore
+from google.cloud import firestore, storage
+from google.oauth2 import service_account
 import leafmap.foliumap as leafmap
 
 # Configure the page
@@ -21,32 +23,21 @@ st.set_page_config(page_title="Geospatial Explorer", page_icon="🌐", layout="w
 # --- CLOUD AUTHENTICATION INJECTION ---
 @st.cache_resource
 def inject_gcp_credentials():
-    """
-    Writes Streamlit secrets to an ephemeral JSON file in the Linux container
-    so C++ engines (like GDAL/Rasterio) can natively authenticate to GCP.
-    """
-    # Check if we are in Streamlit Cloud and haven't already injected the key
+    """Writes Streamlit secrets to an ephemeral JSON file for secure GCP authentication."""
     if "gcp_service_account" in st.secrets and "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
-        # Create a secure temporary file
         fd, path = tempfile.mkstemp(suffix=".json")
         with os.fdopen(fd, 'w') as f:
-            # Convert the Streamlit TOML secrets back into a standard Google JSON object
             json.dump(dict(st.secrets["gcp_service_account"]), f)
-        
-        # Point the entire OS to this temp file
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
         return True
     return False
 
-# Execute the injection immediately upon boot
 inject_gcp_credentials()
 
 # --- INITIALIZATION & CACHING ---
 @st.cache_resource
 def get_firestore_client():
-    """Initializes Firestore client. Magically authenticates in both Local and Cloud environments."""
     try:
-        # Because we injected the credentials into the OS, we can just call Client() natively
         return firestore.Client()
     except Exception as e:
         st.error(f"Firestore Initialization Error: {e}")
@@ -54,58 +45,49 @@ def get_firestore_client():
 
 db = get_firestore_client()
 
-# ... [THE REST OF YOUR SCRIPT REMAINS EXACTLY THE SAME FROM def fetch_surveys(): DOWNWARDS] ...
-
 def fetch_surveys():
-    """Retrieves the parent Earth MRI surveys from Firestore."""
     if not db: return []
     docs = db.collection("usgs_surveys").stream()
     return [{"id": doc.id, **doc.to_dict()} for doc in docs]
 
 def fetch_assets_for_survey(survey_id):
-    """Retrieves available raster layers for a specific survey."""
     if not db: return []
     docs = db.collection("raster_assets").where("parent_survey_id", "==", survey_id).stream()
     return [{"id": doc.id, **doc.to_dict()} for doc in docs]
 
 @st.cache_data(show_spinner=False)
 def calculate_contrast_stretch(target_uri):
-    """Reads a low-res thumbnail of the COG and calculates the 2nd-98th percentile."""
     try:
         with rasterio.open(target_uri) as src:
             thumbnail = src.read(1, out_shape=(1, 500, 500))
             nodata = src.nodata if src.nodata is not None else 0
             valid_pixels = thumbnail[thumbnail != nodata]
-            
             if valid_pixels.size > 0:
-                vmin = float(np.percentile(valid_pixels, 2))
-                vmax = float(np.percentile(valid_pixels, 98))
-                return vmin, vmax
-            else:
-                return None, None
+                return float(np.percentile(valid_pixels, 2)), float(np.percentile(valid_pixels, 98))
+            return None, None
     except Exception as e:
-        st.warning(f"Using default stretch. Could not calculate dynamic scale: {e}")
+        st.warning(f"Could not calculate dynamic scale: {e}")
         return None, None
 
 @st.cache_data(show_spinner=False)
 def load_and_project_anomalies(file_path):
-    """Loads ML targets and translates UTM 13N projected meters to WGS84 GPS degrees."""
     if not os.path.exists(file_path):
         return None
-        
     df = pd.read_csv(file_path)
-    
-    # EPSG:26913 = NAD83 / UTM zone 13N (Colorado standard)
-    # EPSG:4326 = WGS84 standard web map GPS
     transformer = Transformer.from_crs("EPSG:26913", "EPSG:4326", always_xy=True)
-    
-    # Project the arrays on the fly
-    df['lon_wgs84'], df['lat_wgs84'] = transformer.transform(
-        df['Longitude'].values, 
-        df['Latitude'].values
-    )
-    
+    df['lon_wgs84'], df['lat_wgs84'] = transformer.transform(df['Longitude'].values, df['Latitude'].values)
     return df
+
+def generate_signed_url(gs_uri):
+    """Generates a secure, 1-hour signed URL to allow TiTiler to stream the private raster."""
+    bucket_name = gs_uri.split("/")[2]
+    blob_name = "/".join(gs_uri.split("/")[3:])
+    
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+
+    return blob.generate_signed_url(version="v4", expiration=timedelta(hours=1), method="GET")
 
 # --- MAIN APPLICATION LOGIC ---
 def main():
@@ -113,15 +95,12 @@ def main():
     st.markdown("Explore high-resolution Earth MRI raster payloads via Cloud Optimized GeoTIFFs.")
     st.divider()
 
-    # Fetch Catalog Data
     surveys = fetch_surveys()
     if not surveys:
         st.warning("No survey metadata found. Ensure your Firestore catalog is seeded.")
         return
 
-    # --- SIDEBAR: DATA CATALOG ---
     st.sidebar.header("Data Catalog")
-    
     survey_options = {s["survey_name"]: s["id"] for s in surveys}
     selected_survey_name = st.sidebar.selectbox("1. Target Region", list(survey_options.keys()))
     selected_survey_id = survey_options[selected_survey_name]
@@ -135,20 +114,16 @@ def main():
     selected_asset_label = st.sidebar.selectbox("2. Geophysical Payload", list(asset_options.keys()))
     target_asset = asset_options[selected_asset_label]
 
-    # For rasterio calculations (requires /vsigs/ to read metadata over GCP)
-    gdal_uri = target_asset.get("storage_uri").replace("gs://", "/vsigs/")
-    
-    # For Streamlit Cloud map rendering (requires standard HTTP to bypass port blockers)
-    http_uri = target_asset.get("storage_uri").replace("gs://", "https://storage.googleapis.com/")
+    # URIs
+    raw_gs_uri = target_asset.get("storage_uri")
+    gdal_uri = raw_gs_uri.replace("gs://", "/vsigs/")
 
-    # --- MAIN VIEW ---
-    if gdal_uri and http_uri:
+    if raw_gs_uri:
         col1, col2 = st.columns([3, 1])
 
         with col1:
             st.subheader(selected_asset_label)
             
-            # Interactive Mapping Controls
             ctrl1, ctrl2 = st.columns(2)
             with ctrl1:
                 opacity = st.slider("Layer Opacity", min_value=0.0, max_value=1.0, value=0.6, step=0.05)
@@ -156,16 +131,18 @@ def main():
                 default_cmap = "magma" if target_asset['layer_type'] == "radiometric" else "viridis"
                 colormap = st.selectbox("Style Palette", ["magma", "viridis", "plasma", "inferno", "terrain"], index=0 if default_cmap == "magma" else 1)
 
-            with st.spinner("Analyzing array distribution..."):
+            with st.spinner("Analyzing array distribution & Generating Secure Stream..."):
                 vmin, vmax = calculate_contrast_stretch(gdal_uri)
+                # Create the signed URL for the public TiTiler proxy
+                signed_http_uri = generate_signed_url(raw_gs_uri)
 
-            # Map Rendering
-            m = leafmap.Map(google_map="HYBRID", draw_control=False, measure_control=False)
+            # Center map on Colorado and set zoom level to prevent the "world view" bug
+            m = leafmap.Map(center=[39.0, -105.0], zoom=7, google_map="HYBRID", draw_control=False, measure_control=False)
             
             try:
-                # 1. Mount the Heavy Cloud Optimized GeoTIFF via HTTP / TiTiler
+                # 1. Mount the Secure Signed URL
                 m.add_cog_layer(
-                    http_uri, 
+                    signed_http_uri, 
                     colormap_name=colormap, 
                     opacity=opacity, 
                     name=target_asset['proxy_metric']
@@ -184,8 +161,13 @@ def main():
                         icon_names=['circle'],
                         spin=True,
                         add_legend=True,
-                        layer_name="FJH Feedstock Anomalies"
+                        layer_name="FJH Feedstock Anomalies" # Adds directly to layer control
                     )
+                else:
+                    st.warning("⚠️ ML Targets CSV not found. Ensure cmb_mid_2023_anomalies.csv is pushed to GitHub.")
+                
+                # Expose the layer control icon on the map
+                m.add_layer_control()
                 
                 m.to_streamlit(height=650)
                 
@@ -206,12 +188,6 @@ def main():
                 st.markdown("### Contrast Stretch")
                 st.caption(f"**Min (2nd Pctl):** `{vmin:.2f}`")
                 st.caption(f"**Max (98th Pctl):** `{vmax:.2f}`")
-
-            st.markdown("### Interpretation")
-            if target_asset['layer_type'] == "radiometric":
-                st.write("Radiometric surveys detect gamma-ray emissions. High Thorium (eTh) often acts as a proxy indicator for REE-bearing carbonatite intrusions.")
-            else:
-                st.write("Magnetic surveys detect variations caused by deep rock formations. Used to map the physical geometry and boundaries of igneous intrusions.")
 
 if __name__ == "__main__":
     main()
