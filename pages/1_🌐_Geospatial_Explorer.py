@@ -135,27 +135,28 @@ def main():
             with st.spinner("Analyzing array distribution & Generating Secure Stream..."):
                 vmin, vmax = calculate_contrast_stretch(gdal_uri)
                 
-                # Generate the raw signed URL
+                # 1. Generate the raw signed URL
                 raw_signed_url = generate_signed_url(raw_gs_uri)
                 
-                # FIX: URL-Encode the string so TiTiler doesn't truncate the GCP signature
-                safe_signed_url = urllib.parse.quote(raw_signed_url, safe="")
+                # 2. Safely encode the URL so it can be passed AS A PARAMETER to the proxy engine
+                encoded_url = urllib.parse.quote(raw_signed_url, safe="")
+                
+                # 3. Construct the explicit TiTiler XYZ API endpoint
+                # This explicitly dictates the routing, bypassing all local Windows/Streamlit path parsing
+                titiler_xyz = f"https://titiler.xyz/cog/tiles/{{z}}/{{x}}/{{y}}?url={encoded_url}&rescale={vmin},{vmax}&colormap_name={colormap}&bidx=1"
 
             # Center map on Colorado Mineral Belt
             m = leafmap.Map(center=[39.0, -105.0], zoom=7, google_map="HYBRID", draw_control=False, measure_control=False)
             
             try:
-                # 3. Mount using the safely encoded URL and EXPLICITLY pass the data bounds
-                m.add_cog_layer(
-                    safe_signed_url, 
-                    colormap_name=colormap, 
-                    opacity=opacity, 
+                # 4. Mount using a direct Tile Layer instead of the COG wrapper
+                m.add_tile_layer(
+                    url=titiler_xyz,
                     name=target_asset['proxy_metric'],
-                    rescale=f"{vmin},{vmax}",
-                    bidx=[1]  # 🚨 THE FIX: Wrap the band index in a list
+                    attribution="USGS Earth MRI"
                 )
                 
-                # 2. Overlay the Machine Learning Targets
+                # 5. Overlay the Machine Learning Targets
                 anomaly_csv_path = os.path.join("data", "processed", "cmb_mid_2023_anomalies.csv")
                 anomalies_df = load_and_project_anomalies(anomaly_csv_path)
 
@@ -168,7 +169,7 @@ def main():
                         icon_names=['circle'],
                         spin=True,
                         add_legend=True,
-                        layer_name="FJH Feedstock Anomalies" # Adds directly to layer control
+                        layer_name="FJH Feedstock Anomalies"
                     )
                 else:
                     st.warning("⚠️ ML Targets CSV not found. Ensure cmb_mid_2023_anomalies.csv is pushed to GitHub.")
