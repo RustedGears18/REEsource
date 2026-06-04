@@ -4,8 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>0a885820-d661-47dc-9a5a-8480c1aee26b</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>
-    </StartupFile>
+    <StartupFile>app\train_anomaly_model.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -43,9 +42,18 @@
     <Content Include=".env" />
     <Content Include=".streamlit\config.toml" />
     <Content Include="dashboard.py" />
-    <Content Include="REEsource_Architecture_Decisions.txt" />
     <Content Include="LICENSE" />
     <Content Include="readme.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="app\build_ml_fact_table.py" />
+    <Compile Include="app\train_anomaly_model.py" />
+    <Compile Include="ingest_rasters.py" />
+    <Compile Include="notebooks\parquet_diagnostic.py" />
+    <Compile Include="optimize_to_cog.py" />
+    <Compile Include="pages\1_🌐_Geospatial_Explorer.py" />
+    <Compile Include="patch_firestore.py" />
+    <Compile Include="seed_firestore.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in

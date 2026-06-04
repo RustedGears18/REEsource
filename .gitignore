@@ -3,3 +3,9 @@ __pycache__/
 .streamlit/secrets.toml
 *.env
 .vs/
+# Ignore local geophysical raster data and large survey files
+*.tif
+*.tiff
+*.csv
+*.nc
+data/raw
