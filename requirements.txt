@@ -1,10 +1,7 @@
-
 folium
-gdal-bin
 google-cloud-firestore
 google-genai
 leafmap
-libgdal-dev
 localtileserver
 pandas
 pyarrow
