@@ -145,12 +145,14 @@ def main():
             m = leafmap.Map(center=[39.0, -105.0], zoom=7, google_map="HYBRID", draw_control=False, measure_control=False)
             
             try:
-                # Mount using the safely encoded URL
+                # 3. Mount using the safely encoded URL and EXPLICITLY pass the data bounds
                 m.add_cog_layer(
                     safe_signed_url, 
                     colormap_name=colormap, 
                     opacity=opacity, 
-                    name=target_asset['proxy_metric']
+                    name=target_asset['proxy_metric'],
+                    rescale=f"{vmin},{vmax}",  # 🚨 THE FIX: Tells TiTiler the exact data range so it doesn't render transparently
+                    bidx=1                     # Explicitly pull Band 1
                 )
                 
                 # 2. Overlay the Machine Learning Targets
