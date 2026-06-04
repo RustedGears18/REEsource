@@ -9,7 +9,7 @@ OUTPUT_CSV = os.path.join("data", "processed", "cmb_mid_2023_anomalies.csv")
 
 # The percentage of the dataset we expect to be a true anomaly. 
 # 0.0005 = 0.05% (Roughly 2,800 pixels out of 5.6 million)
-CONTAMINATION_RATE = 0.01
+CONTAMINATION_RATE = 0.001
 
 def main():
     print("🧠 Initiating REEsource Anomaly Detection Model...\n" + "="*50)
@@ -48,15 +48,20 @@ def main():
     # Filter only the rows the model flagged as anomalies (-1)
     anomalies = df[df['Anomaly_Label'] == -1].copy()
     
-    # Instead of filtering by the skewed scaler, filter by the raw data.
-    # Exclude the 254 background pixels, and keep the highest raw Thorium.
-    valid_targets = anomalies[anomalies['eTh_Raw'] < 254].copy()
- 
-    # Sort by the most extreme anomalies first
-    valid_targets = valid_targets.sort_values(by='Anomaly_Score', ascending=True)
+    # Filter out the 255 background/NoData void pixels
+    valid_targets = anomalies[anomalies['eTh_Raw'] < 250].copy()
 
-    # Optional: Grab the top 500 most extreme points to keep the map snappy
-    valid_targets = valid_targets.head(500)
+    # 🚨 THE FIX: Sort by the absolute highest Thorium radiation first, 
+    # and then by the ML Anomaly Score as a tie-breaker.
+    valid_targets = valid_targets.sort_values(
+        by=['eTh_Raw', 'Anomaly_Score'], 
+        ascending=[False, True]  # False = Highest Thorium at the top
+    )
+
+    # Slice the dataframe down from thousands to just the Top 50 prime extraction sites
+    valid_targets = valid_targets.head(50)
+
+    print(f"  -> Isolated Top {len(valid_targets)} prime FJH target coordinates.")
 
     # 5. SAVE FOR THE DASHBOARD
     print(f"\n💾 Saving targets to {OUTPUT_CSV}...")
