@@ -1,16 +1,17 @@
 import os
 from dotenv import load_dotenv
 
-# 1. LOAD CREDENTIALS & NETWORK RULES FIRST
+# 1. LOAD LOCAL CREDENTIALS (Ignored by Streamlit Cloud)
 load_dotenv()
 
-# 2. IMPORT HEAVY LIBRARIES
+# 2. IMPORT LIBRARIES
 import numpy as np
 import pandas as pd
 import rasterio
 import streamlit as st
 from pyproj import Transformer
 from google.cloud import firestore
+from google.oauth2 import service_account
 import leafmap.foliumap as leafmap
 
 # Configure the page
@@ -19,9 +20,17 @@ st.set_page_config(page_title="Geospatial Explorer", page_icon="🌐", layout="w
 # --- INITIALIZATION & CACHING ---
 @st.cache_resource
 def get_firestore_client():
-    """Initializes the Firestore database client."""
+    """Initializes Firestore client securely for both Local and Cloud environments."""
     try:
-        return firestore.Client()
+        # Check if we are running on Streamlit Cloud
+        if "gcp_service_account" in st.secrets:
+            creds = service_account.Credentials.from_service_account_info(
+                st.secrets["gcp_service_account"]
+            )
+            return firestore.Client(credentials=creds, project=creds.project_id)
+        else:
+            # Fallback for local development
+            return firestore.Client()
     except Exception as e:
         st.error(f"Firestore Initialization Error: {e}")
         return None
@@ -42,9 +51,7 @@ def fetch_assets_for_survey(survey_id):
 
 @st.cache_data(show_spinner=False)
 def calculate_contrast_stretch(target_uri):
-    """
-    Reads a low-res thumbnail of the COG and calculates the 2nd-98th percentile.
-    """
+    """Reads a low-res thumbnail of the COG and calculates the 2nd-98th percentile."""
     try:
         with rasterio.open(target_uri) as src:
             thumbnail = src.read(1, out_shape=(1, 500, 500))
@@ -63,9 +70,7 @@ def calculate_contrast_stretch(target_uri):
 
 @st.cache_data(show_spinner=False)
 def load_and_project_anomalies(file_path):
-    """
-    Loads ML targets and translates UTM 13N projected meters to WGS84 GPS degrees.
-    """
+    """Loads ML targets and translates UTM 13N projected meters to WGS84 GPS degrees."""
     if not os.path.exists(file_path):
         return None
         
@@ -86,7 +91,7 @@ def load_and_project_anomalies(file_path):
 # --- MAIN APPLICATION LOGIC ---
 def main():
     st.title("🌐 Geospatial Explorer")
-    st.markdown("Explore high-resolution Earth MRI raster payloads streamed directly from Google Cloud Storage.")
+    st.markdown("Explore high-resolution Earth MRI raster payloads via Cloud Optimized GeoTIFFs.")
     st.divider()
 
     # Fetch Catalog Data
@@ -111,11 +116,14 @@ def main():
     selected_asset_label = st.sidebar.selectbox("2. Geophysical Payload", list(asset_options.keys()))
     target_asset = asset_options[selected_asset_label]
 
-    # Convert standard gs:// string to GDAL's virtual file system format
-    target_uri = target_asset.get("storage_uri").replace("gs://", "/vsigs/")
+    # For rasterio calculations (requires /vsigs/ to read metadata over GCP)
+    gdal_uri = target_asset.get("storage_uri").replace("gs://", "/vsigs/")
+    
+    # For Streamlit Cloud map rendering (requires standard HTTP to bypass port blockers)
+    http_uri = target_asset.get("storage_uri").replace("gs://", "https://storage.googleapis.com/")
 
     # --- MAIN VIEW ---
-    if target_uri:
+    if gdal_uri and http_uri:
         col1, col2 = st.columns([3, 1])
 
         with col1:
@@ -130,21 +138,17 @@ def main():
                 colormap = st.selectbox("Style Palette", ["magma", "viridis", "plasma", "inferno", "terrain"], index=0 if default_cmap == "magma" else 1)
 
             with st.spinner("Analyzing array distribution..."):
-                vmin, vmax = calculate_contrast_stretch(target_uri)
+                vmin, vmax = calculate_contrast_stretch(gdal_uri)
 
             # Map Rendering
             m = leafmap.Map(google_map="HYBRID", draw_control=False, measure_control=False)
             
             try:
-                # 1. Mount the Heavy Cloud Optimized GeoTIFF via HTTP/COG backend
-                # Note: We replace gs:// with the standard GCP storage URL for the COG reader
-                http_uri = target_asset.get("storage_uri").replace("gs://", "https://storage.googleapis.com/")
-                
+                # 1. Mount the Heavy Cloud Optimized GeoTIFF via HTTP
                 m.add_cog(
                     http_uri, 
                     cmap=colormap, 
                     opacity=opacity, 
-                    # vmin/vmax can sometimes be finicky with add_cog depending on the titiler backend
                     layer_name=target_asset['proxy_metric']
                 )
                 
@@ -167,7 +171,7 @@ def main():
                 m.to_streamlit(height=650)
                 
             except Exception as e:
-                st.error(f"Render Error. Ensure credentials are valid. Details: {e}")
+                st.error(f"Render Error. Details: {e}")
 
         # --- METADATA PANEL ---
         with col2:
