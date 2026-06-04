@@ -136,15 +136,16 @@ def main():
             m = leafmap.Map(google_map="HYBRID", draw_control=False, measure_control=False)
             
             try:
-                # 1. Mount the Heavy Cloud Optimized GeoTIFF
-                m.add_raster(
-                    target_uri, 
+                # 1. Mount the Heavy Cloud Optimized GeoTIFF via HTTP/COG backend
+                # Note: We replace gs:// with the standard GCP storage URL for the COG reader
+                http_uri = target_asset.get("storage_uri").replace("gs://", "https://storage.googleapis.com/")
+                
+                m.add_cog(
+                    http_uri, 
                     cmap=colormap, 
                     opacity=opacity, 
-                    vmin=vmin, 
-                    vmax=vmax,
-                    layer_name=target_asset['proxy_metric'],
-                    host="127.0.0.1"  # Fail-safe lock for IPv4
+                    # vmin/vmax can sometimes be finicky with add_cog depending on the titiler backend
+                    layer_name=target_asset['proxy_metric']
                 )
                 
                 # 2. Overlay the Machine Learning Targets
