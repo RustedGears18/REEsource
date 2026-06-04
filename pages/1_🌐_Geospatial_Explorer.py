@@ -8,15 +8,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # 2. IMPORT LIBRARIES
-import numpy as np
 import pandas as pd
-import rasterio
 import streamlit as st
 from pyproj import Transformer
 from google.cloud import firestore, storage
-from google.oauth2 import service_account
 import leafmap.foliumap as leafmap
-import urllib.parse
 
 # Configure the page
 st.set_page_config(page_title="Geospatial Explorer", page_icon="🌐", layout="wide")
@@ -57,21 +53,8 @@ def fetch_assets_for_survey(survey_id):
     return [{"id": doc.id, **doc.to_dict()} for doc in docs]
 
 @st.cache_data(show_spinner=False)
-def calculate_contrast_stretch(target_uri):
-    try:
-        with rasterio.open(target_uri) as src:
-            thumbnail = src.read(1, out_shape=(1, 500, 500))
-            nodata = src.nodata if src.nodata is not None else 0
-            valid_pixels = thumbnail[thumbnail != nodata]
-            if valid_pixels.size > 0:
-                return float(np.percentile(valid_pixels, 2)), float(np.percentile(valid_pixels, 98))
-            return None, None
-    except Exception as e:
-        st.warning(f"Could not calculate dynamic scale: {e}")
-        return None, None
-
-@st.cache_data(show_spinner=False)
 def load_and_project_anomalies(file_path):
+    """Loads scikit-learn targets and projects them to WGS84 for web mapping."""
     if not os.path.exists(file_path):
         return None
     df = pd.read_csv(file_path)
@@ -80,7 +63,7 @@ def load_and_project_anomalies(file_path):
     return df
 
 def generate_signed_url(gs_uri):
-    """Generates a secure, 1-hour signed URL to allow TiTiler to stream the private raster."""
+    """Generates a secure, 1-hour signed URL to allow Leafmap to stream the private raster."""
     bucket_name = gs_uri.split("/")[2]
     blob_name = "/".join(gs_uri.split("/")[3:])
     
@@ -117,7 +100,6 @@ def main():
 
     # URIs
     raw_gs_uri = target_asset.get("storage_uri")
-    gdal_uri = raw_gs_uri.replace("gs://", "/vsigs/")
 
     if raw_gs_uri:
         col1, col2 = st.columns([3, 1])
@@ -125,51 +107,39 @@ def main():
         with col1:
             st.subheader(selected_asset_label)
             
-            ctrl1, ctrl2 = st.columns(2)
-            with ctrl1:
-                opacity = st.slider("Layer Opacity", min_value=0.0, max_value=1.0, value=0.6, step=0.05)
-            with ctrl2:
-                default_cmap = "magma" if target_asset['layer_type'] == "radiometric" else "viridis"
-                colormap = st.selectbox("Style Palette", ["magma", "viridis", "plasma", "inferno", "terrain"], index=0 if default_cmap == "magma" else 1)
+            # Simplified controls since the raster is already colored
+            opacity = st.slider("Layer Opacity", min_value=0.0, max_value=1.0, value=0.6, step=0.05)
 
-            with st.spinner("Analyzing array distribution & Generating Secure Stream..."):
-                vmin, vmax = calculate_contrast_stretch(gdal_uri)
-                
-                # 1. Generate the raw signed URL
+            with st.spinner("Generating Secure Stream..."):
+                # Generate the raw signed URL
                 raw_signed_url = generate_signed_url(raw_gs_uri)
-                
-                # 2. Safely encode the URL so it can be passed AS A PARAMETER to the proxy engine
-                encoded_url = urllib.parse.quote(raw_signed_url, safe="")
-                
-                # 3. Construct the explicit TiTiler XYZ API endpoint
-                # This explicitly dictates the routing, bypassing all local Windows/Streamlit path parsing
-                titiler_xyz = f"https://titiler.xyz/cog/tiles/{{z}}/{{x}}/{{y}}?url={encoded_url}&rescale={vmin},{vmax}&colormap_name={colormap}&bidx=1"
 
             # Center map on Colorado Mineral Belt
             m = leafmap.Map(center=[39.0, -105.0], zoom=7, google_map="HYBRID", draw_control=False, measure_control=False)
             
             try:
-                # 4. Mount using a direct Tile Layer instead of the COG wrapper
-                m.add_tile_layer(
-                    url=titiler_xyz,
+                # Direct COG rendering via Leafmap (Native RGB handling)
+                m.add_cog_layer(
+                    url=raw_signed_url,
                     name=target_asset['proxy_metric'],
-                    attribution="USGS Earth MRI"
+                    opacity=opacity
                 )
                 
-                # 5. Overlay the Machine Learning Targets
+                # Overlay the Machine Learning Targets
                 anomaly_csv_path = os.path.join("data", "processed", "cmb_mid_2023_anomalies.csv")
                 anomalies_df = load_and_project_anomalies(anomaly_csv_path)
 
                 if anomalies_df is not None and not anomalies_df.empty:
-                    m.add_points_from_xy(
+                    m.add_circle_markers_from_xy(
                         anomalies_df,
                         x="lon_wgs84",
                         y="lat_wgs84",
+                        radius=5,          
+                        color="red",       
+                        fill_color="red",  
+                        fill_opacity=0.7,
                         popup=["Anomaly_Score", "eTh_Raw", "RTP_Raw"], 
-                        icon_names=['circle'],
-                        spin=True,
-                        add_legend=True,
-                        layer_name="FJH Feedstock Anomalies"
+                        layer_name="Anomaly Targets"
                     )
                 else:
                     st.warning("⚠️ ML Targets CSV not found. Ensure cmb_mid_2023_anomalies.csv is pushed to GitHub.")
@@ -191,11 +161,6 @@ def main():
                 f"**Proxy Metric:** {target_asset['proxy_metric']}\n\n"
                 f"**Status:** {target_asset.get('processing_status', 'Unknown')}"
             )
-            
-            if vmin and vmax:
-                st.markdown("### Contrast Stretch")
-                st.caption(f"**Min (2nd Pctl):** `{vmin:.2f}`")
-                st.caption(f"**Max (98th Pctl):** `{vmax:.2f}`")
 
 if __name__ == "__main__":
     main()
