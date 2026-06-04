@@ -6,6 +6,13 @@ __pycache__/
 # Ignore local geophysical raster data and large survey files
 *.tif
 *.tiff
-*.csv
+# 1. Ignore all contents inside the data folder (Raw, Heavy Raster, Parquet)
+data/*
+data/**/*
+
+# 2. EXCEPTION: Allow Git to track the processed folder itself
+!data/processed/
+
+# 3. EXCEPTION: Allow all CSVs ending in anomalies.csv anywhere in the repo
+!**/*anomalies.csv
 *.nc
-data/raw

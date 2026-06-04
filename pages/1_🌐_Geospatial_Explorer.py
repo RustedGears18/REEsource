@@ -16,6 +16,7 @@ from pyproj import Transformer
 from google.cloud import firestore, storage
 from google.oauth2 import service_account
 import leafmap.foliumap as leafmap
+import urllib.parse
 
 # Configure the page
 st.set_page_config(page_title="Geospatial Explorer", page_icon="🌐", layout="wide")
@@ -133,16 +134,20 @@ def main():
 
             with st.spinner("Analyzing array distribution & Generating Secure Stream..."):
                 vmin, vmax = calculate_contrast_stretch(gdal_uri)
-                # Create the signed URL for the public TiTiler proxy
-                signed_http_uri = generate_signed_url(raw_gs_uri)
+                
+                # Generate the raw signed URL
+                raw_signed_url = generate_signed_url(raw_gs_uri)
+                
+                # FIX: URL-Encode the string so TiTiler doesn't truncate the GCP signature
+                safe_signed_url = urllib.parse.quote(raw_signed_url, safe="")
 
-            # Center map on Colorado and set zoom level to prevent the "world view" bug
+            # Center map on Colorado Mineral Belt
             m = leafmap.Map(center=[39.0, -105.0], zoom=7, google_map="HYBRID", draw_control=False, measure_control=False)
             
             try:
-                # 1. Mount the Secure Signed URL
+                # Mount using the safely encoded URL
                 m.add_cog_layer(
-                    signed_http_uri, 
+                    safe_signed_url, 
                     colormap_name=colormap, 
                     opacity=opacity, 
                     name=target_asset['proxy_metric']
