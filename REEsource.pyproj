@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>0a885820-d661-47dc-9a5a-8480c1aee26b</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>run_pipeline.py</StartupFile>
+    <StartupFile>raster_to_png_conversion.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -54,6 +54,7 @@
     <Compile Include="optimize_to_cog.py" />
     <Compile Include="pages\1_🌐_Geospatial_Explorer.py" />
     <Compile Include="patch_firestore.py" />
+    <Compile Include="raster_to_png_conversion.py" />
     <Compile Include="run_pipeline.py" />
     <Compile Include="seed_firestore.py" />
   </ItemGroup>
