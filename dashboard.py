@@ -12,16 +12,14 @@ st.set_page_config(page_title="REEsource Target Analytics", layout="wide", page_
 # --- Initialize Firestore (Production Secrets Auth) ---
 @st.cache_resource(show_spinner=False)
 def get_db():
-    # 1. Pull the raw JSON string from Streamlit's encrypted secrets
-    raw_json = st.secrets["gcp_service_account"]
+    # Streamlit automatically parsed the secret into a dictionary-like object.
+    # We just explicitly cast it to a standard Python dict for Google Auth.
+    creds_dict = dict(st.secrets["gcp_service_account"])
     
-    # 2. Parse it into a Python dictionary
-    creds_dict = json.loads(raw_json)
-    
-    # 3. Create the Google Auth Credentials object
+    # Create the Google Auth Credentials object directly
     credentials = service_account.Credentials.from_service_account_info(creds_dict)
     
-    # 4. Connect to Firestore using the loaded credentials
+    # Connect to Firestore
     return firestore.Client(credentials=credentials, project=creds_dict["project_id"])
 
 db = get_db()
