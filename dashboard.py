@@ -77,11 +77,11 @@ st.sidebar.header("Map Configuration")
 
 # Basemap Selection Dictionary
 map_styles = {
-    "Dark Mode (High Contrast)": pdk.map_styles.DARK,
-    "Satellite": pdk.map_styles.SATELLITE,
-    "Light Mode": pdk.map_styles.LIGHT,
-    "Outdoors/Terrain": pdk.map_styles.OUTDOORS,
-    "Standard Road Map": pdk.map_styles.ROAD
+    "Dark Mode (High Contrast)": "mapbox://styles/mapbox/dark-v11",
+    "Satellite": "mapbox://styles/mapbox/satellite-v9",
+    "Light Mode": "mapbox://styles/mapbox/light-v11",
+    "Outdoors/Terrain": "mapbox://styles/mapbox/outdoors-v12",
+    "Standard Road Map": "mapbox://styles/mapbox/streets-v12"
 }
 
 # Default to Dark Mode for maximum visibility of anomalies
