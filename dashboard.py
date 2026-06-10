@@ -8,17 +8,20 @@ import pydeck as pdk
 # --- Page Config ---
 st.set_page_config(page_title="REEsource Target Analytics", layout="wide", page_icon="🌍")
 
-# --- Initialize Firestore (Production Secrets Auth) ---
+# --- Initialize Firestore ---
 @st.cache_resource(show_spinner=False)
 def get_db():
-    # Streamlit automatically parsed the secret into a dictionary-like object.
-    # We just explicitly cast it to a standard Python dict for Google Auth.
-    creds_dict = dict(st.secrets["gcp_service_account"])
+    if "gcp_service_account" not in st.secrets:
+        return None
+        
+    # 1. Fetch the raw JSON string from the multiline TOML secret
+    raw_secret_string = st.secrets["gcp_service_account"]
     
-    # Create the Google Auth Credentials object directly
+    # 2. Parse the JSON string into a valid Python dictionary
+    creds_dict = json.loads(raw_secret_string)
+        
+    # 3. Authenticate with Google Cloud
     credentials = service_account.Credentials.from_service_account_info(creds_dict)
-    
-    # Connect to Firestore
     return firestore.Client(credentials=credentials, project=creds_dict["project_id"])
 
 db = get_db()
