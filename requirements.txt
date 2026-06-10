@@ -6,6 +6,7 @@ leafmap
 localtileserver
 pandas
 pyarrow
+pydeck
 python-dotenv
 rasterio
 scikit-learn

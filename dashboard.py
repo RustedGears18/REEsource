@@ -9,20 +9,29 @@ import pandas as pd
 # --- Page Config ---
 st.set_page_config(page_title="REEsource Target Analytics", layout="wide", page_icon="🌍")
 
-# --- Initialize Firestore (Production Secrets Auth) ---
+# --- Initialize Firestore (Universal Production Auth) ---
 @st.cache_resource(show_spinner=False)
 def get_db():
-    # Streamlit automatically parsed the secret into a dictionary-like object.
-    # We just explicitly cast it to a standard Python dict for Google Auth.
-    creds_dict = dict(st.secrets["gcp_service_account"])
+    # Gracefully check if secrets exist yet
+    if "gcp_service_account" not in st.secrets:
+        return None
+        
+    secret_data = st.secrets["gcp_service_account"]
     
-    # Create the Google Auth Credentials object directly
+    if isinstance(secret_data, str):
+        creds_dict = json.loads(secret_data)
+    else:
+        creds_dict = dict(secret_data)
+        
     credentials = service_account.Credentials.from_service_account_info(creds_dict)
-    
-    # Connect to Firestore
     return firestore.Client(credentials=credentials, project=creds_dict["project_id"])
 
 db = get_db()
+
+# Prevent the rest of the script from running if the database isn't connected
+if db is None:
+    st.warning("⏳ Infrastructure Provisioning: Awaiting Cloud Run Secrets injection...")
+    st.stop()
 
 # --- Fetch & Cache Data ---
 @st.cache_data(ttl=86400, show_spinner=False) 
