@@ -41,6 +41,7 @@
   <ItemGroup>
     <Content Include=".env" />
     <Content Include=".streamlit\config.toml" />
+    <Content Include="cors.json" />
     <Content Include="dashboard.py" />
     <Content Include="LICENSE" />
     <Content Include="readme.md" />

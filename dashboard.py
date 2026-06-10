@@ -73,6 +73,22 @@ if not master_geojson['features']:
     st.stop()
 
 # --- Sidebar Controls ---
+st.sidebar.header("Map Configuration")
+
+# Basemap Selection Dictionary
+map_styles = {
+    "Dark Mode (High Contrast)": pdk.map_styles.DARK,
+    "Satellite": pdk.map_styles.SATELLITE,
+    "Light Mode": pdk.map_styles.LIGHT,
+    "Outdoors/Terrain": pdk.map_styles.OUTDOORS,
+    "Standard Road Map": pdk.map_styles.ROAD
+}
+
+# Default to Dark Mode for maximum visibility of anomalies
+selected_style_name = st.sidebar.selectbox("Basemap Style", list(map_styles.keys()), index=0)
+current_map_style = map_styles[selected_style_name]
+
+st.sidebar.divider()
 st.sidebar.header("Baseline Raster Layers")
 st.sidebar.caption("Toggle exported .tif overlays (rendered as bounds)")
 
@@ -123,6 +139,7 @@ GCS_BASE_URL = "https://storage.googleapis.com/reesource-data-raw"
 if show_u_layer:
     layers.append(pdk.Layer(
         "BitmapLayer",
+        id="u_raster_layer", # Unique ID prevents rendering collisions
         image=f"{GCS_BASE_URL}/u_baseline.png", 
         bounds=RASTER_BOUNDS,
         opacity=0.6,
@@ -132,6 +149,7 @@ if show_u_layer:
 if show_th_layer:
     layers.append(pdk.Layer(
         "BitmapLayer",
+        id="th_raster_layer",
         image=f"{GCS_BASE_URL}/th_baseline.png", 
         bounds=RASTER_BOUNDS,
         opacity=0.6,
@@ -141,6 +159,7 @@ if show_th_layer:
 if show_k_layer:
     layers.append(pdk.Layer(
         "BitmapLayer",
+        id="k_raster_layer",
         image=f"{GCS_BASE_URL}/k_baseline.png", 
         bounds=RASTER_BOUNDS,
         opacity=0.6,
@@ -150,6 +169,7 @@ if show_k_layer:
 if show_mag_layer:
     layers.append(pdk.Layer(
         "BitmapLayer",
+        id="mag_raster_layer",
         image=f"{GCS_BASE_URL}/rtp_mag_baseline.png", 
         bounds=RASTER_BOUNDS,
         opacity=0.6,
@@ -173,12 +193,20 @@ layers.append(pdk.Layer(
 ))
 
 # --- Render Map ---
-view_state = pdk.ViewState(latitude=39.0, longitude=-105.5, zoom=6.5, pitch=45)
+# Lock the viewport to the survey area using zoom constraints
+view_state = pdk.ViewState(
+    latitude=39.0, 
+    longitude=-105.5, 
+    zoom=7.5, 
+    min_zoom=6.5,   # Prevents scrolling out to see the whole earth
+    max_zoom=12.0,  # Prevents zooming in past the resolution of the data
+    pitch=45
+)
 
 st.pydeck_chart(pdk.Deck(
     api_keys={"mapbox": st.secrets["MAPBOX_API_KEY"]},
     map_provider="mapbox",
-    map_style=pdk.map_styles.SATELLITE, 
+    map_style=current_map_style, # Uses the dynamic variable from the sidebar
     layers=layers,
     initial_view_state=view_state,
     tooltip={
