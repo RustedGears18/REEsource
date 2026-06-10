@@ -1,18 +1,24 @@
-.venv/
-__pycache__/
-.streamlit/secrets.toml
-*.env
-.vs/
-# Ignore local geophysical raster data and large survey files
+# GCP & Security Credentials (CRITICAL)
+.env
+key.json
+*.json
+
+# Raw & Processed Data (Too large for Git)
 *.tif
-*.tiff
-# 1. Ignore all contents inside the data folder (Raw, Heavy Raster, Parquet)
-data/*
-data/**/*
+*.geojson
+data/
+outputs/
 
-# 2. EXCEPTION: Allow Git to track the processed folder itself
-!data/processed/
+# Python Cache & Virtual Environments
+__pycache__/
+*.pyc
+venv/
+.venv/
 
-# 3. EXCEPTION: Allow all CSVs ending in anomalies.csv anywhere in the repo
-!**/*anomalies.csv
-*.nc
+# IDE Specific Files
+.vscode/
+.idea/
+
+.streamlit/
+.vs/
+repo_snapshot.txt

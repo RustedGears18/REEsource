@@ -70,7 +70,7 @@ def generate_signed_url(gs_uri):
     storage_client = storage.Client()
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
-
+    print(blob) #FIXME added debugger
     return blob.generate_signed_url(version="v4", expiration=timedelta(hours=1), method="GET")
 
 # --- MAIN APPLICATION LOGIC ---
@@ -113,10 +113,10 @@ def main():
             with st.spinner("Generating Secure Stream..."):
                 # Generate the raw signed URL
                 raw_signed_url = generate_signed_url(raw_gs_uri)
-
+                print(raw_signed_url)#FIX me added debugger
             # Center map on Colorado Mineral Belt
-            m = leafmap.Map(center=[39.0, -105.0], zoom=7, google_map="HYBRID", draw_control=False, measure_control=False)
-            
+            m = leafmap.Map(center=[39.0, -105.0], zoom=7, google_map="HYBRID", draw_control=True, measure_control=True)
+            print(target_asset['proxy_metric'])#FIX me added debugger
             try:
                 # Direct COG rendering via Leafmap (Native RGB handling)
                 m.add_cog_layer(

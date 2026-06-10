@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>0a885820-d661-47dc-9a5a-8480c1aee26b</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>optimize_to_cog.py</StartupFile>
+    <StartupFile>run_pipeline.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -46,6 +46,7 @@
     <Content Include="readme.md" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="app\app.py" />
     <Compile Include="app\build_ml_fact_table.py" />
     <Compile Include="app\train_anomaly_model.py" />
     <Compile Include="ingest_rasters.py" />
@@ -53,6 +54,7 @@
     <Compile Include="optimize_to_cog.py" />
     <Compile Include="pages\1_🌐_Geospatial_Explorer.py" />
     <Compile Include="patch_firestore.py" />
+    <Compile Include="run_pipeline.py" />
     <Compile Include="seed_firestore.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
