@@ -34,8 +34,8 @@ def run_pipeline():
     COLLECTION_NAME = 'ree_targets'
     
     # --- Grid search parameters for 2D auto-tuning ---
-    SEARCH_SIZES = range(10, 260, 20) 
-    SEARCH_EPSILONS = [0.0, 0.3, 0.5, 0.7, 1.0] 
+    SEARCH_SIZES = range(20, 45, 5) #Narrowed parameters to cluster sizes near 30 pixels in size, too small or large had little value.
+    SEARCH_EPSILONS = [0.0, 0.3, 0.5, 0.7] #dropped epsilon of 1.0  
     DOWNSAMPLE_FACTOR = 2  
 
     # --- 1. Ingestion & Preprocessing ---
@@ -105,7 +105,8 @@ def run_pipeline():
                 min_samples=15, 
                 metric='euclidean', 
                 core_dist_n_jobs=6,
-                cluster_selection_epsilon=current_epsilon
+                cluster_selection_epsilon=current_epsilon,
+                gen_min_span_tree=True  # <-- Add this flag here
             )
             
             labels = clusterer.fit_predict(scaled_data)
