@@ -33,11 +33,18 @@ def load_all_targets(collection_name='ree_targets'):
         cluster_id = data.get('cluster_id')
         if cluster_id in [1, -1, '1', '-1']:
             continue
-            
-        geom = json.loads(data['geometry'])
+
         u_val = data.get('mean_U_ppm', 0)
+        
+        # Calculate intensity metric (0 to 255)
         intensity = min(int((u_val / 20.0) * 255), 255) 
-        fill_color = [255, 255 - intensity, 0, 220] 
+        
+        # UPDATED: Green Gradient
+        # Base green is 100, scales up to a bright neon 255 based on intensity
+        green_value = 100 + int(intensity * 0.6) 
+        
+        # RGBA Array [Red, Green, Blue, Alpha transparency]
+        fill_color = [0, green_value, 50, 200]
         
         features.append({
             "type": "Feature",
@@ -82,9 +89,9 @@ if not master_geojson['features'] and not raster_assets:
 st.sidebar.header("Map Configuration")
 
 map_styles = {
+    "Light Mode": "mapbox://styles/mapbox/light-v11",
     "Dark Mode (High Contrast)": "mapbox://styles/mapbox/dark-v11",
     "Satellite": "mapbox://styles/mapbox/satellite-v9",
-    "Light Mode": "mapbox://styles/mapbox/light-v11",
     "Outdoors/Terrain": "mapbox://styles/mapbox/outdoors-v12",
     "Standard Road Map": "mapbox://styles/mapbox/streets-v12"
 }
@@ -178,11 +185,11 @@ elif selected_layer_label in raster_run_map:
 
 # --- Render Map ---
 view_state = pdk.ViewState(
-    latitude= 38.267, 
-    longitude= -107.08, 
+    latitude= 38.2645,
+    longitude= -107.0778, 
     zoom=10.0, 
     min_zoom=5.0,   
-    max_zoom=14.0
+    max_zoom=12.0
 )
 
 st.pydeck_chart(pdk.Deck(
