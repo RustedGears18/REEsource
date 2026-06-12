@@ -33,9 +33,10 @@ def run_pipeline():
     PROJECT_ID = os.getenv("GCP_PROJECT_ID", "reesource")
     COLLECTION_NAME = 'ree_targets'
     
-    # Optimally targeted gap-filled cluster sizes
-    CLUSTER_SIZES = [250, 200, 175, 150, 125, 100, 75, 50, 25, 10] 
-    DOWNSAMPLE_FACTOR = 2  # 
+    # --- Grid search parameters for 2D auto-tuning ---
+    SEARCH_SIZES = range(10, 260, 20) 
+    SEARCH_EPSILONS = [0.0, 0.3, 0.5, 0.7, 1.0] 
+    DOWNSAMPLE_FACTOR = 2  
 
     # --- 1. Ingestion & Preprocessing ---
     logging.info("Starting Ingestion & Preprocessing Phase.")
@@ -63,6 +64,11 @@ def run_pipeline():
     new_transform = transform * transform.scale(DOWNSAMPLE_FACTOR, DOWNSAMPLE_FACTOR)
     meta.update({'height': min_height, 'width': min_width, 'transform': new_transform})
 
+    # --- Calculate Total Survey Area for 10% Rejection Logic ---
+    total_survey_area = abs((min_width * new_transform[0]) * (min_height * new_transform[4]))
+    max_cluster_area = total_survey_area * 0.10
+    logging.info("Max allowed anomaly area set to 10% of total survey extent.")
+
     arrays = {}
     for feature, arr in raw_arrays.items():
         cropped_arr = arr[:min_height, :min_width]
@@ -81,70 +87,99 @@ def run_pipeline():
     features = ['U', 'Th', 'K', 'Mag']
     scaled_data = scaler.fit_transform(valid_df[features])
 
-# --- 2 & 3. Iterative Clustering & Vectorization ---
-    logging.info("Starting Iterative Analytics Engine Phase...")
-    all_polygons = []
+    # --- 2. Iterative Analytics Engine (2D Auto-Tuning) ---
+    logging.info("Starting HDBSCAN 2D Auto-Tuning Phase...")
+    
+    best_score = -1.0
+    best_size = None
+    best_epsilon = None
+    best_labels = None
 
-    # You can hardcode epsilon or iterate through a few options
-    TARGET_EPSILON = 0.7
-
-    for min_size in CLUSTER_SIZES:
-        logging.info(f"-> Executing HDBSCAN for min_cluster_size={min_size}, epsilon={TARGET_EPSILON}")
-        
-        # Throttled to 6 cores to balance parallel efficiency and RAM overhead
-        clusterer = hdbscan.HDBSCAN(
-            min_cluster_size=min_size, 
-            min_samples=15, 
-            metric='euclidean', 
-            core_dist_n_jobs=6,
-            cluster_selection_epsilon=TARGET_EPSILON # <-- Added Parameter
-        )
-        
-        # Extract labels directly into an isolated array rather than expanding the DataFrame
-        labels = clusterer.fit_predict(scaled_data)
-        
-        # Check if any targets were found (ignoring noise -1)
-        if not np.any(labels != -1):
-            logging.info(f"   No target clusters found for size {min_size}.")
+    # Nested loop for Cartesian parameter search
+    for min_size in SEARCH_SIZES:
+        for current_epsilon in SEARCH_EPSILONS:
+            logging.info(f"-> Testing HDBSCAN for min_cluster_size={min_size}, epsilon={current_epsilon}...")
+            
+            clusterer = hdbscan.HDBSCAN(
+                min_cluster_size=min_size, 
+                min_samples=15, 
+                metric='euclidean', 
+                core_dist_n_jobs=6,
+                cluster_selection_epsilon=current_epsilon
+            )
+            
+            labels = clusterer.fit_predict(scaled_data)
+            
+            # Evaluate model validity if valid targets are found
+            if np.any(labels != -1):
+                score = clusterer.relative_validity_
+                logging.info(f"   DBCV Score: {score:.3f}")
+                
+                # Capture the highest scoring model configuration
+                if score > best_score:
+                    best_score = score
+                    best_size = min_size
+                    best_epsilon = current_epsilon
+                    best_labels = labels
+            else:
+                logging.info(f"   No target clusters found for size {min_size}, eps {current_epsilon}.")
+                
+            # Explicit memory management for the nested loop
             del clusterer, labels
             gc.collect()
-            continue
+
+    if best_labels is None:
+        logging.error("Optimization failed to find any valid clusters. Exiting.")
+        return
+
+    logging.info(f"Optimization complete. Best configuration: Size {best_size}, Epsilon {best_epsilon} with DBCV score: {best_score:.3f}")
+
+    # --- 3. Vectorization of Optimal Run ---
+    logging.info("Vectorizing optimal clusters...")
+    valid_df['final_cluster'] = best_labels
+    cluster_means = valid_df[valid_df['final_cluster'] != -1].groupby('final_cluster')[features].mean().to_dict('index')
+    valid_df.drop(columns=['final_cluster'], inplace=True)
+    
+    cluster_grid = np.full(df.shape[0], -1, dtype=np.int32)
+    cluster_grid[valid_df['pixel_idx'].values] = best_labels
+    cluster_grid = cluster_grid.reshape(meta['height'], meta['width'])
+
+    all_polygons = []
+    for geom, value in shapes(cluster_grid, transform=new_transform):
+        if value != -1: 
+            poly_shape = shape(geom)
             
-        # Temporarily bridge labels to calculate unscaled physical means
-        valid_df['temp_cluster'] = labels
-        cluster_means = valid_df[valid_df['temp_cluster'] != -1].groupby('temp_cluster')[features].mean().to_dict('index')
-        valid_df.drop(columns=['temp_cluster'], inplace=True) # Drop immediately
-        
-        n_clusters = len(cluster_means)
-        logging.info(f"   Found {n_clusters} unique target zones.")
-        
-        # Reconstruct spatial grid mapping using native index array operations
-        cluster_grid = np.full(df.shape[0], -1, dtype=np.int32)
-        cluster_grid[valid_df['pixel_idx'].values] = labels
-        cluster_grid = cluster_grid.reshape(meta['height'], meta['width'])
+            # Upstream Size Rejection Guardrail
+            if poly_shape.area > max_cluster_area:
+                continue 
+            
+            # Calculate Spatial Dimensions
+            bounds = poly_shape.bounds
+            width_m = bounds[2] - bounds[0]
+            height_m = bounds[3] - bounds[1]
+            approx_width_km = round(width_m / 1000, 2)
+            approx_height_km = round(height_m / 1000, 2)
 
-        # 
-        for geom, value in shapes(cluster_grid, transform=new_transform):
-            if value != -1: 
-                all_polygons.append({
-                    'geometry': shape(geom),
-                    'cluster_id': int(value),
-                    'min_cluster_size': min_size,
-                    'epsilon': TARGET_EPSILON, # <-- Track the hyperparameter
-                    'mean_U': round(float(cluster_means[value]['U']), 3),
-                    'mean_Th': round(float(cluster_means[value]['Th']), 3),
-                    'mean_K': round(float(cluster_means[value]['K']), 3),
-                    'mean_Mag': round(float(cluster_means[value]['Mag']), 1)
-                })
+            all_polygons.append({
+                'geometry': poly_shape,
+                'cluster_id': int(value),
+                'min_cluster_size': best_size,
+                'epsilon': best_epsilon, 
+                'width_km': approx_width_km,
+                'height_km': approx_height_km,
+                'mean_U': round(float(cluster_means[value]['U']), 3),
+                'mean_Th': round(float(cluster_means[value]['Th']), 3),
+                'mean_K': round(float(cluster_means[value]['K']), 3),
+                'mean_Mag': round(float(cluster_means[value]['Mag']), 1)
+            })
 
-        # --- Explicit Memory Consolidation Protocol ---
-        del clusterer, labels, cluster_grid, cluster_means
-        gc.collect()
+    del cluster_grid, cluster_means
+    gc.collect()
 
-    logging.info(f"Total geometries aggregated across runs: {len(all_polygons)}")
+    logging.info(f"Total optimal geometries aggregated: {len(all_polygons)}")
 
     if not all_polygons:
-        logging.error("No geometries generated. Exiting early.")
+        logging.error("No valid geometries remained after area rejection. Exiting.")
         return
 
     gdf = gpd.GeoDataFrame(all_polygons, crs=crs)
@@ -155,10 +190,9 @@ def run_pipeline():
     logging.info("Reprojecting CRS to EPSG:4326 for web compatibility...")
     gdf = gdf.to_crs("EPSG:4326")
 
-    # --- THE SAFETY NET ---
+    # The Safety Net
     logging.info("Saving local backup to backup_targets.geojson...")
     gdf.to_file("backup_targets.geojson", driver="GeoJSON")
-    logging.info("Backup secured on local disk.")
 
     # --- 4. Database Deployment ---
     logging.info("Commencing metadata-enriched push to Firestore...")
@@ -172,15 +206,16 @@ def run_pipeline():
         props = feature['properties']
         cluster_id = props['cluster_id']
         min_size = props['min_cluster_size']
-        epsilon_val = props['epsilon'] # <-- Extract from properties
+        epsilon_val = props['epsilon'] 
         
-        # Include epsilon in the document ID to prevent overwriting previous tuning runs
         doc_ref = db.collection(COLLECTION_NAME).document(f"target_size{min_size}_eps{epsilon_val}_id{cluster_id}")
         
         payload = {
             'cluster_id': cluster_id,
             'min_cluster_size': min_size,
-            'epsilon': epsilon_val, # <-- Add to Firestore payload
+            'epsilon': epsilon_val, 
+            'width_km': props['width_km'],
+            'height_km': props['height_km'],
             'mean_U_ppm': props['mean_U'],
             'mean_Th_ppm': props['mean_Th'],
             'mean_K_pct': props['mean_K'],

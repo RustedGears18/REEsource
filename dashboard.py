@@ -22,34 +22,11 @@ def get_db():
 
 db = get_db()
 
-# --- Helper function for rough area estimation to flag giant clusters ---
-def get_polygon_area_bounds(geometry):
-    """Calculates a rough bounding box extent area to eliminate over-sized clusters."""
-    try:
-        coords = []
-        if geometry['type'] == 'Polygon':
-            coords = geometry['coordinates'][0]
-        elif geometry['type'] == 'MultiPolygon':
-            coords = geometry['coordinates'][0][0]
-            
-        if not coords:
-            return 0
-            
-        lons = [c[0] for c in coords]
-        lats = [c[1] for c in coords]
-        return (max(lons) - min(lons)) * (max(lats) - min(lats))
-    except:
-        return 0
-
 # --- Fetch & Cache Data ---
 @st.cache_data(ttl=86400, show_spinner=True) 
 def load_all_targets(collection_name='ree_targets'):
     docs = db.collection(collection_name).stream()
     features = []
-    
-    # First pass to find total survey bounding area limits
-    all_coords = []
-    temp_features = []
     
     for doc in docs:
         data = doc.to_dict()
@@ -58,31 +35,6 @@ def load_all_targets(collection_name='ree_targets'):
             continue
             
         geom = json.loads(data['geometry'])
-        temp_features.append((data, geom))
-        
-        # Capture raw coordinates for total boundary check
-        try:
-            if geom['type'] == 'Polygon':
-                all_coords.extend(geom['coordinates'][0])
-            elif geom['type'] == 'MultiPolygon':
-                all_coords.extend(geom['coordinates'][0][0])
-        except:
-            pass
-
-    if not all_coords:
-        return {"type": "FeatureCollection", "features": []}
-
-    # Total area of the survey space
-    total_lons = [c[0] for c in all_coords]
-    total_lats = [c[1] for c in all_coords]
-    survey_area_delta = (max(total_lons) - min(total_lons)) * (max(total_lats) - min(total_lats))
-    area_threshold = survey_area_delta * 0.10 # Max 10% constraint
-
-    for data, geom in temp_features:
-        # Eliminate clusters taking up more than 10% of total area
-        if get_polygon_area_bounds(geom) > area_threshold:
-            continue
-
         u_val = data.get('mean_U_ppm', 0)
         intensity = min(int((u_val / 20.0) * 255), 255) 
         fill_color = [255, 255 - intensity, 0, 220] 
@@ -94,6 +46,8 @@ def load_all_targets(collection_name='ree_targets'):
                 "cluster_id": data.get('cluster_id'),
                 "min_cluster_size": data.get('min_cluster_size'),
                 "epsilon": data.get('epsilon'), 
+                "width_km": data.get('width_km', 'N/A'),
+                "height_km": data.get('height_km', 'N/A'),
                 "mean_U_ppm": data.get('mean_U_ppm'),
                 "mean_Th_ppm": data.get('mean_Th_ppm'),
                 "mean_K_pct": data.get('mean_K_pct'),
@@ -172,7 +126,6 @@ selected_layer_label = st.sidebar.selectbox("Select Active Display Layer", optio
 layers = []
 
 if selected_layer_label in hd_run_map:
-    # Filter targets matching the dropdown selection
     target_size, target_epsilon = hd_run_map[selected_layer_label]
     filtered_features = [
         f for f in master_geojson['features']
@@ -182,23 +135,21 @@ if selected_layer_label in hd_run_map:
     filtered_geojson = {"type": "FeatureCollection", "features": filtered_features}
     st.sidebar.success(f"**{len(filtered_features)}** Target Anomaly Zones isolated.")
     
-    # Flattened Vector Layer for distinct visibility 
     layers.append(pdk.Layer(
         "GeoJsonLayer",
         data=filtered_geojson,
         opacity=0.90,
         stroked=True,
         filled=True,
-        extruded=False,  # Flattened to surface
+        extruded=False,  
         get_fill_color="properties.fill_color",
         get_line_color=[255, 255, 255, 255],
-        get_line_width=250, # Boosted line width to illuminate micro anomalies
+        get_line_width=250, 
         line_width_min_pixels=3,
         pickable=True,
     ))
 
 elif selected_layer_label in raster_run_map:
-    # Handle single active Raster selection
     raster_data = raster_run_map[selected_layer_label]
     url = raster_data.get('url') or raster_data.get('image_url')
     bounds = raster_data.get('bounds')
@@ -231,11 +182,14 @@ st.pydeck_chart(pdk.Deck(
     initial_view_state=view_state,
     tooltip={
         "html": "<b>Cluster ID:</b> {cluster_id} <br/>"
+                "<b>Dimensions:</b> ~{width_km} km x {height_km} km <br/>"
+                "<hr/>"
                 "<b>Uranium:</b> {mean_U_ppm} ppm <br/>"
                 "<b>Thorium:</b> {mean_Th_ppm} ppm <br/>"
                 "<b>Potassium:</b> {mean_K_pct} % <br/>"
                 "<b>Magnetics:</b> {mean_Mag_nT} nT <br/>"
+                "<br/>"
                 "<b>Run Specs:</b> Min Size {min_cluster_size} | ε {epsilon}",
-        "style": {"backgroundColor": "#333333", "color": "white"}
+        "style": {"backgroundColor": "#333333", "color": "white", "font-family": "sans-serif"}
     }
 ))
