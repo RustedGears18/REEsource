@@ -34,8 +34,8 @@ def run_pipeline():
     COLLECTION_NAME = 'ree_targets'
     
     # Optimally targeted gap-filled cluster sizes
-    CLUSTER_SIZES = [250, 200, 175, 150, 125, 100, 75, 50, 25] 
-    DOWNSAMPLE_FACTOR = 1  # Keeping maximum 30m fidelity
+    CLUSTER_SIZES = [250, 200, 175, 150, 125, 100, 75, 50, 25, 10] 
+    DOWNSAMPLE_FACTOR = 2  # 
 
     # --- 1. Ingestion & Preprocessing ---
     logging.info("Starting Ingestion & Preprocessing Phase.")
@@ -81,15 +81,24 @@ def run_pipeline():
     features = ['U', 'Th', 'K', 'Mag']
     scaled_data = scaler.fit_transform(valid_df[features])
 
-    # --- 2 & 3. Iterative Clustering & Vectorization ---
+# --- 2 & 3. Iterative Clustering & Vectorization ---
     logging.info("Starting Iterative Analytics Engine Phase...")
     all_polygons = []
 
+    # You can hardcode epsilon or iterate through a few options
+    TARGET_EPSILON = 0.7
+
     for min_size in CLUSTER_SIZES:
-        logging.info(f"-> Executing HDBSCAN for min_cluster_size={min_size}")
+        logging.info(f"-> Executing HDBSCAN for min_cluster_size={min_size}, epsilon={TARGET_EPSILON}")
         
         # Throttled to 6 cores to balance parallel efficiency and RAM overhead
-        clusterer = hdbscan.HDBSCAN(min_cluster_size=min_size, min_samples=15, metric='euclidean', core_dist_n_jobs=6)
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=min_size, 
+            min_samples=15, 
+            metric='euclidean', 
+            core_dist_n_jobs=6,
+            cluster_selection_epsilon=TARGET_EPSILON # <-- Added Parameter
+        )
         
         # Extract labels directly into an isolated array rather than expanding the DataFrame
         labels = clusterer.fit_predict(scaled_data)
@@ -114,12 +123,14 @@ def run_pipeline():
         cluster_grid[valid_df['pixel_idx'].values] = labels
         cluster_grid = cluster_grid.reshape(meta['height'], meta['width'])
 
+        # 
         for geom, value in shapes(cluster_grid, transform=new_transform):
             if value != -1: 
                 all_polygons.append({
                     'geometry': shape(geom),
                     'cluster_id': int(value),
                     'min_cluster_size': min_size,
+                    'epsilon': TARGET_EPSILON, # <-- Track the hyperparameter
                     'mean_U': round(float(cluster_means[value]['U']), 3),
                     'mean_Th': round(float(cluster_means[value]['Th']), 3),
                     'mean_K': round(float(cluster_means[value]['K']), 3),
@@ -136,7 +147,6 @@ def run_pipeline():
         logging.error("No geometries generated. Exiting early.")
         return
 
-    import geopandas as gpd
     gdf = gpd.GeoDataFrame(all_polygons, crs=crs)
     logging.info("Applying buffer smoothing to master geometries...")
     gdf['geometry'] = gdf['geometry'].buffer(100, join_style=2).buffer(-100, join_style=2)
@@ -162,12 +172,15 @@ def run_pipeline():
         props = feature['properties']
         cluster_id = props['cluster_id']
         min_size = props['min_cluster_size']
+        epsilon_val = props['epsilon'] # <-- Extract from properties
         
-        doc_ref = db.collection(COLLECTION_NAME).document(f"target_size{min_size}_id{cluster_id}")
+        # Include epsilon in the document ID to prevent overwriting previous tuning runs
+        doc_ref = db.collection(COLLECTION_NAME).document(f"target_size{min_size}_eps{epsilon_val}_id{cluster_id}")
         
         payload = {
             'cluster_id': cluster_id,
             'min_cluster_size': min_size,
+            'epsilon': epsilon_val, # <-- Add to Firestore payload
             'mean_U_ppm': props['mean_U'],
             'mean_Th_ppm': props['mean_Th'],
             'mean_K_pct': props['mean_K'],

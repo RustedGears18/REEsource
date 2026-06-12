@@ -14,13 +14,9 @@ def get_db():
     if "gcp_service_account" not in st.secrets:
         return None
         
-    # 1. Fetch the raw JSON string from the multiline TOML secret
     raw_secret_string = st.secrets["gcp_service_account"]
-    
-    # 2. Parse the JSON string into a valid Python dictionary
     creds_dict = json.loads(raw_secret_string)
         
-    # 3. Authenticate with Google Cloud
     credentials = service_account.Credentials.from_service_account_info(creds_dict)
     return firestore.Client(credentials=credentials, project=creds_dict["project_id"])
 
@@ -52,6 +48,7 @@ def load_all_targets(collection_name='ree_targets'):
             "properties": {
                 "cluster_id": cluster_id,
                 "min_cluster_size": data.get('min_cluster_size'),
+                "epsilon": data.get('epsilon'), 
                 "mean_U_ppm": data.get('mean_U_ppm'),
                 "mean_Th_ppm": data.get('mean_Th_ppm'),
                 "mean_K_pct": data.get('mean_K_pct'),
@@ -61,12 +58,25 @@ def load_all_targets(collection_name='ree_targets'):
         })
     return {"type": "FeatureCollection", "features": features}
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_cmb_mid_rasters():
+    """Fetches raster metadata from Firestore where document ID contains 'cmb_mid'"""
+    docs = db.collection('raster_assets').stream()
+    assets = {}
+    
+    for doc in docs:
+        if 'cmb_mid' in doc.id.lower():
+            assets[doc.id] = doc.to_dict()
+            
+    return assets
+
 # --- Application UI ---
 st.title("REEsource: Critical Mineral Anomaly Detection")
 st.markdown("Interactive exploration of geospatial HDBSCAN clusters highlighting multi-dimensional REE signatures.")
 
 with st.spinner("Initializing geospatial data warehouse..."):
     master_geojson = load_all_targets()
+    raster_assets = load_cmb_mid_rasters()
 
 if not master_geojson['features']:
     st.error("Data pipeline connection failed or no valid targets found after filtering.")
@@ -75,7 +85,6 @@ if not master_geojson['features']:
 # --- Sidebar Controls ---
 st.sidebar.header("Map Configuration")
 
-# Basemap Selection Dictionary
 map_styles = {
     "Dark Mode (High Contrast)": "mapbox://styles/mapbox/dark-v11",
     "Satellite": "mapbox://styles/mapbox/satellite-v9",
@@ -84,43 +93,56 @@ map_styles = {
     "Standard Road Map": "mapbox://styles/mapbox/streets-v12"
 }
 
-# Default to Dark Mode for maximum visibility of anomalies
 selected_style_name = st.sidebar.selectbox("Basemap Style", list(map_styles.keys()), index=0)
 current_map_style = map_styles[selected_style_name]
 
+# Dynamic Raster Layers based on Firestore 'cmb_mid' documents
 st.sidebar.divider()
-st.sidebar.header("Baseline Raster Layers")
-st.sidebar.caption("Toggle exported .tif overlays (rendered as bounds)")
+st.sidebar.header("CMB Mid Raster Layers")
+st.sidebar.caption("Toggle dynamically loaded raster overlays")
 
-show_u_layer = st.sidebar.checkbox("Uranium (U) Baseline")
-show_th_layer = st.sidebar.checkbox("Thorium (Th) Baseline")
-show_k_layer = st.sidebar.checkbox("Potassium (K) Baseline")
-show_mag_layer = st.sidebar.checkbox("RTP Magnetic Baseline")
+active_rasters = {}
+if not raster_assets:
+    st.sidebar.warning("No 'cmb_mid' assets found in Firestore.")
+else:
+    for asset_id, data in raster_assets.items():
+        display_name = data.get('name', asset_id.replace('_', ' ').title())
+        if st.sidebar.checkbox(f"Show {display_name}"):
+            active_rasters[asset_id] = data
 
 st.sidebar.divider()
-st.sidebar.header("Target Filters")
+st.sidebar.header("HDBSCAN Target Layers")
 
-available_sizes = sorted(list(set([f['properties']['min_cluster_size'] for f in master_geojson['features']])), reverse=True)
+# Extract unique run configurations dynamically (combining Size and Epsilon)
+unique_runs = list(set([
+    (f['properties']['min_cluster_size'], f['properties']['epsilon']) 
+    for f in master_geojson['features'] 
+    if f['properties'].get('min_cluster_size') is not None and f['properties'].get('epsilon') is not None
+]))
 
-selected_size = st.sidebar.select_slider(
-    "Algorithmic Granularity (Min Cluster Size)",
-    options=available_sizes,
-    value=available_sizes[len(available_sizes)//2] if available_sizes else None,
-    help="Higher values show massive regional formations. Lower values reveal localized hotspots."
-)
+# Sort them logically: primarily by Size (descending), then by Epsilon (ascending)
+unique_runs.sort(key=lambda x: (-x[0], x[1]))
 
-st.sidebar.subheader("Geochemical Thresholds")
-min_u = st.sidebar.slider("Minimum Uranium (ppm)", 0.0, 20.0, 0.0, 0.5)
-min_th = st.sidebar.slider("Minimum Thorium (ppm)", 0.0, 40.0, 0.0, 1.0)
-max_mag = st.sidebar.slider("Maximum Magnetic Anomaly (nT)", -1000, 2000, 2000, 100)
+# Create formatted labels for the dropdown list
+run_labels = [f"Run: Size {r[0]} | ε {r[1]}" for r in unique_runs]
 
-# --- In-Memory Filtering ---
+if not run_labels:
+    st.sidebar.error("No valid HDBSCAN run metadata found in targets.")
+    st.stop()
+
+# Single dropdown to move through the layers
+selected_label = st.sidebar.selectbox("Select Output Layer", options=run_labels)
+
+# Map the selected label back to the actual size and epsilon values
+selected_index = run_labels.index(selected_label)
+selected_size, selected_epsilon = unique_runs[selected_index]
+
+
+# --- In-Memory Filtering (Simplified) ---
 filtered_features = [
     f for f in master_geojson['features']
     if f['properties']['min_cluster_size'] == selected_size
-    and f['properties']['mean_U_ppm'] >= min_u
-    and f['properties']['mean_Th_ppm'] >= min_th
-    and f['properties']['mean_Mag_nT'] <= max_mag
+    and f['properties']['epsilon'] == selected_epsilon
 ]
 
 filtered_geojson = {"type": "FeatureCollection", "features": filtered_features}
@@ -129,52 +151,20 @@ st.sidebar.success(f"**{len(filtered_features)}** Target Zones visible.")
 # --- PyDeck Layers Setup ---
 layers = []
 
-# PASTE THE EXACT ARRAY YOUR PYTHON SCRIPT PRINTED HERE
-RASTER_BOUNDS = [-107.0, 38.0, -104.0, 40.0] 
-
-# Base URL for public GCS objects
-GCS_BASE_URL = "https://storage.googleapis.com/reesource-data-raw"
-
-# Baseline Raster Layers
-if show_u_layer:
-    layers.append(pdk.Layer(
-        "BitmapLayer",
-        id="u_raster_layer", # Unique ID prevents rendering collisions
-        image=f"{GCS_BASE_URL}/u_baseline.png", 
-        bounds=RASTER_BOUNDS,
-        opacity=0.6,
-        pickable=False
-    ))
-
-if show_th_layer:
-    layers.append(pdk.Layer(
-        "BitmapLayer",
-        id="th_raster_layer",
-        image=f"{GCS_BASE_URL}/th_baseline.png", 
-        bounds=RASTER_BOUNDS,
-        opacity=0.6,
-        pickable=False
-    ))
-
-if show_k_layer:
-    layers.append(pdk.Layer(
-        "BitmapLayer",
-        id="k_raster_layer",
-        image=f"{GCS_BASE_URL}/k_baseline.png", 
-        bounds=RASTER_BOUNDS,
-        opacity=0.6,
-        pickable=False
-    ))
-
-if show_mag_layer:
-    layers.append(pdk.Layer(
-        "BitmapLayer",
-        id="mag_raster_layer",
-        image=f"{GCS_BASE_URL}/rtp_mag_baseline.png", 
-        bounds=RASTER_BOUNDS,
-        opacity=0.6,
-        pickable=False
-    ))
+# Process dynamically fetched CMB Mid Raster Assets
+for asset_id, data in active_rasters.items():
+    url = data.get('url') or data.get('image_url')
+    bounds = data.get('bounds')
+    
+    if url and bounds:
+        layers.append(pdk.Layer(
+            "BitmapLayer",
+            id=f"raster_{asset_id}", 
+            image=url, 
+            bounds=bounds,
+            opacity=0.6,
+            pickable=False
+        ))
 
 # HDBSCAN Cluster GeoJSON Layer
 layers.append(pdk.Layer(
@@ -193,20 +183,20 @@ layers.append(pdk.Layer(
 ))
 
 # --- Render Map ---
-# Lock the viewport to the survey area using zoom constraints
+# Centered directly on Blue Mesa Reservoir
 view_state = pdk.ViewState(
-    latitude=39.0, 
-    longitude=-105.5, 
-    zoom=7.5, 
-    min_zoom=6.5,   # Prevents scrolling out to see the whole earth
-    max_zoom=12.0,  # Prevents zooming in past the resolution of the data
+    latitude=38.4733, 
+    longitude=-107.1944, 
+    zoom=10.5, 
+    min_zoom=6.5,   
+    max_zoom=14.0,  
     pitch=45
 )
 
 st.pydeck_chart(pdk.Deck(
     api_keys={"mapbox": st.secrets["MAPBOX_API_KEY"]},
     map_provider="mapbox",
-    map_style=current_map_style, # Uses the dynamic variable from the sidebar
+    map_style=current_map_style, 
     layers=layers,
     initial_view_state=view_state,
     tooltip={
@@ -214,7 +204,8 @@ st.pydeck_chart(pdk.Deck(
                 "<b>Uranium:</b> {mean_U_ppm} ppm <br/>"
                 "<b>Thorium:</b> {mean_Th_ppm} ppm <br/>"
                 "<b>Potassium:</b> {mean_K_pct} % <br/>"
-                "<b>Magnetics:</b> {mean_Mag_nT} nT",
+                "<b>Magnetics:</b> {mean_Mag_nT} nT <br/>"
+                "<b>Algorithm Config:</b> Size {min_cluster_size} | ε {epsilon}",
         "style": {"backgroundColor": "#333333", "color": "white"}
     }
 ))
