@@ -35,18 +35,9 @@ def load_all_targets(collection_name='ree_targets'):
             continue
             
         geom = json.loads(data['geometry'])
-
         u_val = data.get('mean_U_ppm', 0)
-        
-        # Calculate intensity metric (0 to 255)
         intensity = min(int((u_val / 20.0) * 255), 255) 
-        
-        # UPDATED: Green Gradient
-        # Base green is 100, scales up to a bright neon 255 based on intensity
-        green_value = 100 + int(intensity * 0.6) 
-        
-        # RGBA Array [Red, Green, Blue, Alpha transparency]
-        fill_color = [0, green_value, 50, 200]
+        fill_color = [255, 255 - intensity, 0, 220] 
         
         features.append({
             "type": "Feature",
