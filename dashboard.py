@@ -138,15 +138,26 @@ if selected_layer_label in hd_run_map:
     layers.append(pdk.Layer(
         "GeoJsonLayer",
         data=filtered_geojson,
-        opacity=0.90,
+        opacity=0.65, # Dropped from 0.90 to let the basemap bleed through
         stroked=True,
         filled=True,
-        extruded=False,  
+        extruded=True,  # Activated 3D extrusion
+        wireframe=True, # Adds a subtle 3D mesh look
+        
+        # Color mapping (Reads the RGBA array from your properties)
         get_fill_color="properties.fill_color",
-        get_line_color=[255, 255, 255, 255],
-        get_line_width=250, 
-        line_width_min_pixels=3,
+        
+        # Softer, thinner borders (RGBA: light gray, semi-transparent)
+        get_line_color=[200, 200, 200, 120], 
+        get_line_width=30, # Dropped from 250
+        line_width_min_pixels=1,
+        
+        # 3D Elevation mapping (Scales the physical height by the Uranium PPM)
+        get_elevation="properties.mean_U_ppm",
+        elevation_scale=50, # Adjust this multiplier to make the 3D effect taller or shorter
+        
         pickable=True,
+        auto_highlight=True # Highlights the specific polygon when hovered
     ))
 
 elif selected_layer_label in raster_run_map:
@@ -167,9 +178,9 @@ elif selected_layer_label in raster_run_map:
 
 # --- Render Map ---
 view_state = pdk.ViewState(
-    latitude=38.55, 
-    longitude=-106.50, 
-    zoom=8.0, 
+    latitude= 38.267, 
+    longitude= -107.08, 
+    zoom=10.0, 
     min_zoom=5.0,   
     max_zoom=14.0
 )
