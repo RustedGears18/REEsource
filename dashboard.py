@@ -22,31 +22,76 @@ def get_db():
 
 db = get_db()
 
+# --- Helper function for rough area estimation to flag giant clusters ---
+def get_polygon_area_bounds(geometry):
+    """Calculates a rough bounding box extent area to eliminate over-sized clusters."""
+    try:
+        coords = []
+        if geometry['type'] == 'Polygon':
+            coords = geometry['coordinates'][0]
+        elif geometry['type'] == 'MultiPolygon':
+            coords = geometry['coordinates'][0][0]
+            
+        if not coords:
+            return 0
+            
+        lons = [c[0] for c in coords]
+        lats = [c[1] for c in coords]
+        return (max(lons) - min(lons)) * (max(lats) - min(lats))
+    except:
+        return 0
+
 # --- Fetch & Cache Data ---
 @st.cache_data(ttl=86400, show_spinner=True) 
 def load_all_targets(collection_name='ree_targets'):
     docs = db.collection(collection_name).stream()
     features = []
     
+    # First pass to find total survey bounding area limits
+    all_coords = []
+    temp_features = []
+    
     for doc in docs:
         data = doc.to_dict()
         cluster_id = data.get('cluster_id')
-        
-        # Filter out the massive background clusters (noise/baseline)
         if cluster_id in [1, -1, '1', '-1']:
             continue
             
-        u_val = data.get('mean_U_ppm', 0)
+        geom = json.loads(data['geometry'])
+        temp_features.append((data, geom))
         
-        # Vibrant map scaling: High Uranium is Red, Low Uranium is Yellow
+        # Capture raw coordinates for total boundary check
+        try:
+            if geom['type'] == 'Polygon':
+                all_coords.extend(geom['coordinates'][0])
+            elif geom['type'] == 'MultiPolygon':
+                all_coords.extend(geom['coordinates'][0][0])
+        except:
+            pass
+
+    if not all_coords:
+        return {"type": "FeatureCollection", "features": []}
+
+    # Total area of the survey space
+    total_lons = [c[0] for c in all_coords]
+    total_lats = [c[1] for c in all_coords]
+    survey_area_delta = (max(total_lons) - min(total_lons)) * (max(total_lats) - min(total_lats))
+    area_threshold = survey_area_delta * 0.10 # Max 10% constraint
+
+    for data, geom in temp_features:
+        # Eliminate clusters taking up more than 10% of total area
+        if get_polygon_area_bounds(geom) > area_threshold:
+            continue
+
+        u_val = data.get('mean_U_ppm', 0)
         intensity = min(int((u_val / 20.0) * 255), 255) 
         fill_color = [255, 255 - intensity, 0, 220] 
         
         features.append({
             "type": "Feature",
-            "geometry": json.loads(data['geometry']),
+            "geometry": geom,
             "properties": {
-                "cluster_id": cluster_id,
+                "cluster_id": data.get('cluster_id'),
                 "min_cluster_size": data.get('min_cluster_size'),
                 "epsilon": data.get('epsilon'), 
                 "mean_U_ppm": data.get('mean_U_ppm'),
@@ -60,14 +105,11 @@ def load_all_targets(collection_name='ree_targets'):
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_cmb_mid_rasters():
-    """Fetches raster metadata from Firestore where document ID contains 'cmb_mid'"""
     docs = db.collection('raster_assets').stream()
     assets = {}
-    
     for doc in docs:
         if 'cmb_mid' in doc.id.lower():
             assets[doc.id] = doc.to_dict()
-            
     return assets
 
 # --- Application UI ---
@@ -78,8 +120,8 @@ with st.spinner("Initializing geospatial data warehouse..."):
     master_geojson = load_all_targets()
     raster_assets = load_cmb_mid_rasters()
 
-if not master_geojson['features']:
-    st.error("Data pipeline connection failed or no valid targets found after filtering.")
+if not master_geojson['features'] and not raster_assets:
+    st.error("Data pipeline connection failed or no assets discovered.")
     st.stop()
 
 # --- Sidebar Controls ---
@@ -96,99 +138,88 @@ map_styles = {
 selected_style_name = st.sidebar.selectbox("Basemap Style", list(map_styles.keys()), index=0)
 current_map_style = map_styles[selected_style_name]
 
-# Dynamic Raster Layers based on Firestore 'cmb_mid' documents
 st.sidebar.divider()
-st.sidebar.header("CMB Mid Raster Layers")
-st.sidebar.caption("Toggle dynamically loaded raster overlays")
+st.sidebar.header("Layer Directory")
 
-active_rasters = {}
-if not raster_assets:
-    st.sidebar.warning("No 'cmb_mid' assets found in Firestore.")
-else:
-    for asset_id, data in raster_assets.items():
-        display_name = data.get('name', asset_id.replace('_', ' ').title())
-        if st.sidebar.checkbox(f"Show {display_name}"):
-            active_rasters[asset_id] = data
-
-st.sidebar.divider()
-st.sidebar.header("HDBSCAN Target Layers")
-
-# Extract unique run configurations dynamically (combining Size and Epsilon)
+# Compile HDBSCAN Run metadata options
 unique_runs = list(set([
     (f['properties']['min_cluster_size'], f['properties']['epsilon']) 
     for f in master_geojson['features'] 
     if f['properties'].get('min_cluster_size') is not None and f['properties'].get('epsilon') is not None
 ]))
-
-# Sort them logically: primarily by Size (descending), then by Epsilon (ascending)
 unique_runs.sort(key=lambda x: (-x[0], x[1]))
 
-# Create formatted labels for the dropdown list
-run_labels = [f"Run: Size {r[0]} | ε {r[1]}" for r in unique_runs]
+# Build master lists for unified option toggling
+dropdown_options = []
+hd_run_map = {}
+raster_run_map = {}
 
-if not run_labels:
-    st.sidebar.error("No valid HDBSCAN run metadata found in targets.")
-    st.stop()
+for r in unique_runs:
+    label = f"HDBSCAN: Size {r[0]} | ε {r[1]}"
+    dropdown_options.append(label)
+    hd_run_map[label] = r
 
-# Single dropdown to move through the layers
-selected_label = st.sidebar.selectbox("Select Output Layer", options=run_labels)
+for asset_id, data in raster_assets.items():
+    display_name = data.get('name', asset_id.replace('_', ' ').title())
+    label = f"Raster Overlay: {display_name}"
+    dropdown_options.append(label)
+    raster_run_map[label] = data
 
-# Map the selected label back to the actual size and epsilon values
-selected_index = run_labels.index(selected_label)
-selected_size, selected_epsilon = unique_runs[selected_index]
+# Single selector moving one-by-one through data layers
+selected_layer_label = st.sidebar.selectbox("Select Active Display Layer", options=dropdown_options)
 
-
-# --- In-Memory Filtering (Simplified) ---
-filtered_features = [
-    f for f in master_geojson['features']
-    if f['properties']['min_cluster_size'] == selected_size
-    and f['properties']['epsilon'] == selected_epsilon
-]
-
-filtered_geojson = {"type": "FeatureCollection", "features": filtered_features}
-st.sidebar.success(f"**{len(filtered_features)}** Target Zones visible.")
-
-# --- PyDeck Layers Setup ---
+# --- PyDeck Layers Processing ---
 layers = []
 
-# Process dynamically fetched CMB Mid Raster Assets
-for asset_id, data in active_rasters.items():
-    url = data.get('url') or data.get('image_url')
-    bounds = data.get('bounds')
+if selected_layer_label in hd_run_map:
+    # Filter targets matching the dropdown selection
+    target_size, target_epsilon = hd_run_map[selected_layer_label]
+    filtered_features = [
+        f for f in master_geojson['features']
+        if f['properties']['min_cluster_size'] == target_size
+        and f['properties']['epsilon'] == target_epsilon
+    ]
+    filtered_geojson = {"type": "FeatureCollection", "features": filtered_features}
+    st.sidebar.success(f"**{len(filtered_features)}** Target Anomaly Zones isolated.")
+    
+    # Flattened Vector Layer for distinct visibility 
+    layers.append(pdk.Layer(
+        "GeoJsonLayer",
+        data=filtered_geojson,
+        opacity=0.90,
+        stroked=True,
+        filled=True,
+        extruded=False,  # Flattened to surface
+        get_fill_color="properties.fill_color",
+        get_line_color=[255, 255, 255, 255],
+        get_line_width=250, # Boosted line width to illuminate micro anomalies
+        line_width_min_pixels=3,
+        pickable=True,
+    ))
+
+elif selected_layer_label in raster_run_map:
+    # Handle single active Raster selection
+    raster_data = raster_run_map[selected_layer_label]
+    url = raster_data.get('url') or raster_data.get('image_url')
+    bounds = raster_data.get('bounds')
     
     if url and bounds:
         layers.append(pdk.Layer(
             "BitmapLayer",
-            id=f"raster_{asset_id}", 
+            id="active_raster_overlay", 
             image=url, 
             bounds=bounds,
-            opacity=0.6,
+            opacity=0.75,
             pickable=False
         ))
-
-# HDBSCAN Cluster GeoJSON Layer
-layers.append(pdk.Layer(
-    "GeoJsonLayer",
-    data=filtered_geojson,
-    opacity=0.85,
-    stroked=True,
-    filled=True,
-    extruded=True,
-    get_elevation="properties.mean_U_ppm * 500", 
-    get_fill_color="properties.fill_color",
-    get_line_color=[255, 255, 255, 200],
-    get_line_width=100, 
-    line_width_min_pixels=2,
-    pickable=True,
-))
+        st.sidebar.success("Selected Raster Overlay active.")
 
 # --- Render Map ---
-# Centered directly on Blue Mesa Reservoir
 view_state = pdk.ViewState(
-    latitude=38.4733, 
-    longitude=-107.1944, 
-    zoom=8, 
-    min_zoom=5,   
+    latitude=38.55, 
+    longitude=-106.50, 
+    zoom=8.0, 
+    min_zoom=5.0,   
     max_zoom=14.0
 )
 
@@ -204,7 +235,7 @@ st.pydeck_chart(pdk.Deck(
                 "<b>Thorium:</b> {mean_Th_ppm} ppm <br/>"
                 "<b>Potassium:</b> {mean_K_pct} % <br/>"
                 "<b>Magnetics:</b> {mean_Mag_nT} nT <br/>"
-                "<b>Algorithm Config:</b> Size {min_cluster_size} | ε {epsilon}",
+                "<b>Run Specs:</b> Min Size {min_cluster_size} | ε {epsilon}",
         "style": {"backgroundColor": "#333333", "color": "white"}
     }
 ))
