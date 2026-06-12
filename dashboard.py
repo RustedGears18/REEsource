@@ -33,6 +33,8 @@ def load_all_targets(collection_name='ree_targets'):
         cluster_id = data.get('cluster_id')
         if cluster_id in [1, -1, '1', '-1']:
             continue
+            
+        geom = json.loads(data['geometry'])
 
         u_val = data.get('mean_U_ppm', 0)
         
