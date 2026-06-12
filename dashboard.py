@@ -23,7 +23,7 @@ def get_db():
 db = get_db()
 
 # --- Fetch & Cache Data ---
-@st.cache_data(ttl=86400, show_spinner=False) 
+@st.cache_data(ttl=86400, show_spinner=True) 
 def load_all_targets(collection_name='ree_targets'):
     docs = db.collection(collection_name).stream()
     features = []
@@ -187,10 +187,9 @@ layers.append(pdk.Layer(
 view_state = pdk.ViewState(
     latitude=38.4733, 
     longitude=-107.1944, 
-    zoom=10.5, 
-    min_zoom=6.5,   
-    max_zoom=14.0,  
-    pitch=45
+    zoom=8, 
+    min_zoom=5,   
+    max_zoom=14.0
 )
 
 st.pydeck_chart(pdk.Deck(
