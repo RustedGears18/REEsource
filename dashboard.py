@@ -29,7 +29,7 @@ map_styles = {
     "Standard Road Map": "mapbox://styles/mapbox/streets-v12"
 }
 
-selected_style_name = st.sidebar.sidebar.selectbox("Basemap Style", list(map_styles.keys()), index=0)
+selected_style_name = st.sidebar.selectbox("Basemap Style", list(map_styles.keys()), index=0)
 current_map_style = map_styles[selected_style_name]
 
 st.sidebar.divider()
