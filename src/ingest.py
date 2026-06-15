@@ -2,12 +2,19 @@ import rasterio
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from src.config import FILE_PATHS, DOWNSAMPLE_FACTOR, logging
+from src.config import FILE_PATHS, DOWNSAMPLE_FACTOR, ACTIVE_DIMENSIONS, logging
 
 def load_and_scale_rasters():
     logging.info("Starting Ingestion & Preprocessing Phase.")
-    raw_arrays = {}
     meta = None
+
+    # Filter the target paths based on the requested dimensions
+    target_paths = {k: v for k, v in FILE_PATHS.items() if k in ACTIVE_DIMENSIONS}
+    
+    raster_data = {}
+    for name, path in target_paths.items():
+        logging.info(f"Loading raster: {name}")
+        # ... proceed with the existing rasterio.open() and flattening logic ...
 
     for feature, path in FILE_PATHS.items():
         logging.info(f"Loading raster: {feature}")
@@ -22,10 +29,10 @@ def load_and_scale_rasters():
             if nodata is not None:
                 arr[arr == nodata] = np.nan
             
-            raw_arrays[feature] = arr[::DOWNSAMPLE_FACTOR, ::DOWNSAMPLE_FACTOR]
+            raster_data[feature] = arr[::DOWNSAMPLE_FACTOR, ::DOWNSAMPLE_FACTOR]
 
-    min_height = min(arr.shape[0] for arr in raw_arrays.values())
-    min_width = min(arr.shape[1] for arr in raw_arrays.values())
+    min_height = min(arr.shape[0] for arr in raster_data.values())
+    min_width = min(arr.shape[1] for arr in raster_data.values())
     
     new_transform = transform * transform.scale(DOWNSAMPLE_FACTOR, DOWNSAMPLE_FACTOR)
     meta.update({'height': min_height, 'width': min_width, 'transform': new_transform})
@@ -34,7 +41,7 @@ def load_and_scale_rasters():
     total_survey_area = abs((min_width * new_transform[0]) * (min_height * new_transform[4]))
     max_cluster_area = total_survey_area * 0.10
 
-    arrays = {feat: arr[:min_height, :min_width].flatten() for feat, arr in raw_arrays.items()}
+    arrays = {feat: arr[:min_height, :min_width].flatten() for feat, arr in raster_data.items()}
     df = pd.DataFrame(arrays)
     df['pixel_idx'] = df.index
     valid_df = df.dropna().copy()

@@ -2,7 +2,7 @@ import numpy as np
 import geopandas as gpd
 from rasterio.features import shapes
 from shapely.geometry import shape
-from src.config import logging
+from src.config import ACTIVE_DIMENSIONS, logging
 
 # Updated signature to include best_score
 def vectorize_clusters(valid_df, best_labels, meta, new_transform, max_cluster_area, crs, best_size, best_epsilon, best_score):
@@ -27,13 +27,14 @@ def vectorize_clusters(valid_df, best_labels, meta, new_transform, max_cluster_a
                 'cluster_id': int(value),
                 'min_cluster_size': best_size,
                 'epsilon': best_epsilon, 
-                'dbcv_score': round(float(best_score), 4), # Injected DBCV Score
+                'dbcv_score': round(float(best_score), 4),
                 'width_km': round((bounds[2] - bounds[0]) / 1000, 2),
                 'height_km': round((bounds[3] - bounds[1]) / 1000, 2),
-                'mean_U': round(float(cluster_means[value]['U']), 3),
-                'mean_Th': round(float(cluster_means[value]['Th']), 3),
-                'mean_K': round(float(cluster_means[value]['K']), 3),
-                'mean_Mag': round(float(cluster_means[value]['Mag']), 1)
+                # Gracefully handle missing dimensions
+                'mean_U': round(float(cluster_means[value]['U']), 3) if 'U' in ACTIVE_DIMENSIONS else None,
+                'mean_Th': round(float(cluster_means[value]['Th']), 3) if 'Th' in ACTIVE_DIMENSIONS else None,
+                'mean_K': round(float(cluster_means[value]['K']), 3) if 'K' in ACTIVE_DIMENSIONS else None,
+                'mean_Mag': round(float(cluster_means[value]['Mag']), 1) if 'Mag' in ACTIVE_DIMENSIONS else None
             })
 
     if not all_polygons:
