@@ -1,82 +1,74 @@
 import os
+import sys
 import glob
 from google.cloud import storage
-from dotenv import load_dotenv
 
-# Load GCP credentials from your .env file
-load_dotenv()
+# Allow the script to import from the root 'src' directory
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# --- CONFIGURATION ---
-# Replace with your actual GCP Project ID and the name of the bucket you created
-PROJECT_ID = os.getenv("GCP_PROJECT_ID", "reesource")
-BUCKET_NAME = "reesource-earth-mri-rasters" # e.g., 'reesource-rasters-dev'
+from src.config import PROJECT_ID, logging
+
+# --- UPDATED CONFIGURATION ---
+BUCKET_NAME = "reesource-data-raw" 
 SOURCE_DIR = os.path.join("data", "raw")
 
 def get_gcs_client():
-    """Initializes the GCS client using standard Google credentials."""
+    """Initializes the GCS client leveraging the centralized environment."""
     try:
-        # It will automatically look for GOOGLE_APPLICATION_CREDENTIALS in your environment
         return storage.Client(project=PROJECT_ID)
     except Exception as e:
-        print(f"❌ Authentication Error: {e}")
-        print("Ensure GOOGLE_APPLICATION_CREDENTIALS is set in your .env file.")
+        logging.error(f"Authentication Error: {e}")
         return None
 
 def upload_large_file(bucket, local_file_path, destination_blob_name):
     """Uploads a file to the bucket using a chunked size for stability."""
     blob = bucket.blob(destination_blob_name)
+    blob.chunk_size = 5 * 1024 * 1024  # 5 MB chunks
     
-    # Set chunk size to 5 MB. This is highly recommended for files > 10MB
-    blob.chunk_size = 5 * 1024 * 1024 
-    
-    print(f"Uploading: {os.path.basename(local_file_path)}...")
+    logging.info(f"Uploading: {os.path.basename(local_file_path)}...")
     
     try:
         blob.upload_from_filename(local_file_path, timeout=300)
         gs_uri = f"gs://{bucket.name}/{destination_blob_name}"
-        print(f"✅ Success! Available at: {gs_uri}")
+        logging.info(f"✅ Success! Available at: {gs_uri}")
         return gs_uri
     except Exception as e:
-        print(f"❌ Failed to upload {local_file_path}. Error: {e}")
+        logging.error(f"Failed to upload {local_file_path}. Error: {e}")
         return None
 
 def main():
+    logging.info(f"Initiating Bulk Raster Ingestion to {BUCKET_NAME}...")
     client = get_gcs_client()
     if not client:
         return
 
-    # Check if bucket exists, if not, create it (requires appropriate permissions)
     try:
         bucket = client.get_bucket(BUCKET_NAME)
     except Exception:
-        print(f"Bucket '{BUCKET_NAME}' not found. Attempting to create it...")
+        logging.warning(f"Bucket '{BUCKET_NAME}' not found. Attempting to create it...")
         bucket = client.create_bucket(BUCKET_NAME, location="US")
-        print(f"Bucket '{BUCKET_NAME}' created successfully.")
+        logging.info(f"Bucket '{BUCKET_NAME}' created successfully.")
 
-    # Find all .tif files in the target directory
     search_pattern = os.path.join(SOURCE_DIR, "**", "*.tif")
     tif_files = glob.glob(search_pattern, recursive=True)
 
     if not tif_files:
-        print(f"No .tif files found in {SOURCE_DIR}.")
+        logging.warning(f"No .tif files found in {SOURCE_DIR}.")
         return
 
-    print(f"Found {len(tif_files)} raster files. Commencing upload...\n" + "="*40)
+    logging.info(f"Found {len(tif_files)} raster files. Commencing upload...")
 
     uploaded_uris = []
-
     for file_path in tif_files:
-        # Keep the folder structure clean in the bucket (e.g., surveys/cmb_mid_2023_eTh.tif)
         file_name = os.path.basename(file_path)
-        destination_name = f"surveys/{file_name}"
+        # Storing in a logical subdirectory within the raw bucket
+        destination_name = f"surveys/raw_tifs/{file_name}"
         
         uri = upload_large_file(bucket, file_path, destination_name)
         if uri:
             uploaded_uris.append(uri)
 
-    print("\n" + "="*40)
-    print(f"Ingestion Complete. {len(uploaded_uris)} out of {len(tif_files)} files uploaded.")
-    print("Store these URIs in Firestore to link your dashboard to the payloads.")
+    logging.info(f"Ingestion Complete. {len(uploaded_uris)} out of {len(tif_files)} files uploaded.")
 
 if __name__ == "__main__":
     main()

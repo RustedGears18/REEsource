@@ -4,7 +4,8 @@ from rasterio.features import shapes
 from shapely.geometry import shape
 from src.config import logging
 
-def vectorize_clusters(valid_df, best_labels, meta, new_transform, max_cluster_area, crs, best_size, best_epsilon):
+# Updated signature to include best_score
+def vectorize_clusters(valid_df, best_labels, meta, new_transform, max_cluster_area, crs, best_size, best_epsilon, best_score):
     logging.info("Vectorizing optimal clusters...")
     features = ['U', 'Th', 'K', 'Mag']
     valid_df['final_cluster'] = best_labels
@@ -26,6 +27,7 @@ def vectorize_clusters(valid_df, best_labels, meta, new_transform, max_cluster_a
                 'cluster_id': int(value),
                 'min_cluster_size': best_size,
                 'epsilon': best_epsilon, 
+                'dbcv_score': round(float(best_score), 4), # Injected DBCV Score
                 'width_km': round((bounds[2] - bounds[0]) / 1000, 2),
                 'height_km': round((bounds[3] - bounds[1]) / 1000, 2),
                 'mean_U': round(float(cluster_means[value]['U']), 3),
@@ -39,7 +41,6 @@ def vectorize_clusters(valid_df, best_labels, meta, new_transform, max_cluster_a
 
     gdf = gpd.GeoDataFrame(all_polygons, crs=crs)
     
-    # Topology smoothing
     gdf['geometry'] = gdf['geometry'].buffer(100, join_style=2).buffer(-100, join_style=2)
     gdf['geometry'] = gdf['geometry'].simplify(tolerance=50, preserve_topology=True)
     gdf = gdf.to_crs("EPSG:4326")

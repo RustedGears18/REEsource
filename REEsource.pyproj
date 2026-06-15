@@ -24,18 +24,6 @@
   <ItemGroup>
     <Folder Include=".streamlit\" />
     <Folder Include="assets\" />
-    <Folder Include="data\" />
-    <Folder Include="data\processed\" />
-    <Folder Include="data\raw\COMineralBeltMid\Magnetic\" />
-    <Folder Include="data\raw\COMineralBeltMid\Radiometric\" />
-    <Folder Include="data\raw\COMineralBeltNE\" />
-    <Folder Include="data\raw\COMineralBeltNE\Magnetic\" />
-    <Folder Include="data\raw\COMineralBeltNE\Radiometric\" />
-    <Folder Include="data\raw\COMineralBeltMid\" />
-    <Folder Include="data\raw\SierraMadre\" />
-    <Folder Include="data\raw\SierraMadre\Magnetic\" />
-    <Folder Include="data\raw\SierraMadre\Radiometric\" />
-    <Folder Include="data\raw\" />
     <Folder Include="scripts\" />
     <Folder Include="src\" />
   </ItemGroup>
@@ -51,18 +39,11 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="pipeline_runner.py" />
-    <Compile Include="scripts\build_ml_fact_table.py" />
     <Compile Include="scripts\delete_firestore_objects.py" />
     <Compile Include="scripts\ingest_rasters.py" />
     <Compile Include="scripts\optimize_to_cog.py" />
-    <Compile Include="scripts\parquet_diagnostic.py" />
-    <Compile Include="scripts\patch_firestore.py" />
     <Compile Include="scripts\patch_rasters.py" />
-    <Compile Include="scripts\purge_massive_polygons.py" />
-    <Compile Include="scripts\purge_noise_target.py" />
     <Compile Include="scripts\raster_to_png_conversion.py" />
-    <Compile Include="scripts\seed_firestore.py" />
-    <Compile Include="scripts\train_anomaly_model.py" />
     <Compile Include="src\cluster.py" />
     <Compile Include="src\config.py" />
     <Compile Include="src\database.py" />

@@ -18,6 +18,7 @@ def push_to_firestore(gdf):
             'cluster_id': props['cluster_id'],
             'min_cluster_size': props['min_cluster_size'],
             'epsilon': props['epsilon'], 
+            'dbcv_score': props.get('dbcv_score'), # Injected DBCV Score
             'width_km': props['width_km'],
             'height_km': props['height_km'],
             'mean_U_ppm': props['mean_U'],

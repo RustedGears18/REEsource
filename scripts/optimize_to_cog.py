@@ -1,22 +1,25 @@
 import os
+import sys
+import tempfile
 import rasterio
 from google.cloud import storage, firestore
-from dotenv import load_dotenv
 
-load_dotenv()
+# Allow the script to import from the root 'src' directory
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.config import PROJECT_ID, logging
 
 # --- CONFIGURATION ---
-PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-BUCKET_NAME = "reesource-earth-mri-rasters"
-TEMP_DIR = "temp_processing"
+BUCKET_NAME = "reesource-data-raw"
+DEST_PREFIX = "surveys/cogs/"
 
 def get_clients():
     try:
-        db = firestore.Client()
-        storage_client = storage.Client()
+        db = firestore.Client(project=PROJECT_ID)
+        storage_client = storage.Client(project=PROJECT_ID)
         return db, storage_client.bucket(BUCKET_NAME)
     except Exception as e:
-        print(f"❌ GCP Auth Error: {e}")
+        logging.error(f"GCP Auth Error: {e}")
         return None, None
 
 def convert_to_cog(input_path, output_path):
@@ -24,10 +27,9 @@ def convert_to_cog(input_path, output_path):
     with rasterio.open(input_path) as src:
         profile = src.profile
         
-        # Inject the Cloud Optimized GeoTIFF architecture parameters
         profile.update(
             driver="COG",
-            compress="deflate",  # High-efficiency compression
+            compress="deflate",  
             tiled=True,
             blockxsize=256,
             blockysize=256
@@ -40,68 +42,62 @@ def main():
     db, bucket = get_clients()
     if not db or not bucket: return
 
-    # Create a local temp directory for processing
-    os.makedirs(TEMP_DIR, exist_ok=True)
+    logging.info("🚀 Initiating REEsource COG Optimization Pipeline...")
 
-    print("🚀 Initiating REEsource COG Optimization Pipeline...\n" + "="*50)
-
-    # Query Firestore for assets that haven't been optimized yet
-    raw_assets = db.collection("raster_assets").where("processing_status", "==", "Raw_TIF").stream()
+    # Query Firestore for assets registered by patch_rasters.py
+    raw_assets = db.collection("raster_assets").where("processing_status", "==", "Registered").stream()
     
     processed_count = 0
 
     for asset in raw_assets:
         doc_id = asset.id
         data = asset.to_dict()
-        raw_uri = data.get("storage_uri")
+        raw_uri = data.get("raw_storage_uri")
         
-        # Extract the exact path inside the bucket
+        if not raw_uri:
+            logging.warning(f"Skipping {doc_id}: No raw_storage_uri found.")
+            continue
+
         blob_path = raw_uri.replace(f"gs://{BUCKET_NAME}/", "")
         filename = blob_path.split("/")[-1]
 
-        local_raw = os.path.join(TEMP_DIR, f"raw_{filename}")
-        local_cog = os.path.join(TEMP_DIR, f"cog_{filename}")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            local_raw = os.path.join(temp_dir, f"raw_{filename}")
+            local_cog = os.path.join(temp_dir, f"cog_{filename}")
 
-        print(f"📥 Downloading: {filename}")
-        
-        try:
-            # 1. EXTRACT: Download from GCS
-            blob = bucket.blob(blob_path)
-            blob.download_to_filename(local_raw)
-
-            # 2. TRANSFORM: Convert to COG
-            print(f"⚙️  Optimizing to COG format...")
-            convert_to_cog(local_raw, local_cog)
-
-            # 3. LOAD: Upload the new COG
-            new_blob_path = f"cogs/{filename}"
-            new_blob = bucket.blob(new_blob_path)
+            logging.info(f"📥 Downloading: {filename}")
             
-            # Use chunked upload for the new file just to be safe
-            new_blob.chunk_size = 5 * 1024 * 1024 
-            new_blob.upload_from_filename(local_cog, timeout=300)
-            
-            new_uri = f"gs://{BUCKET_NAME}/{new_blob_path}"
+            try:
+                # 1. EXTRACT
+                blob = bucket.blob(blob_path)
+                blob.download_to_filename(local_raw)
 
-            # 4. UPDATE: Modify the Firestore metadata catalog
-            asset.reference.update({
-                "storage_uri": new_uri,
-                "processing_status": "COG_Ready"
-            })
+                # 2. TRANSFORM
+                logging.info("⚙️ Optimizing to COG format...")
+                convert_to_cog(local_raw, local_cog)
 
-            print(f"✅ Success! Updated DB: {new_uri}\n")
-            processed_count += 1
+                # 3. LOAD
+                new_blob_path = f"{DEST_PREFIX}{filename}"
+                new_blob = bucket.blob(new_blob_path)
+                
+                new_blob.chunk_size = 5 * 1024 * 1024 
+                new_blob.upload_from_filename(local_cog, timeout=300)
+                
+                new_uri = f"gs://{BUCKET_NAME}/{new_blob_path}"
 
-        except Exception as e:
-            print(f"❌ Pipeline failed for {filename}. Error: {e}\n")
+                # 4. UPDATE
+                asset.reference.update({
+                    "cog_storage_uri": new_uri,
+                    "processing_status": "COG_Optimized"
+                })
 
-        finally:
-            # Clean up the 50MB temp files so your hard drive doesn't fill up
-            if os.path.exists(local_raw): os.remove(local_raw)
-            if os.path.exists(local_cog): os.remove(local_cog)
+                logging.info(f"✅ Success! Updated DB: {new_uri}")
+                processed_count += 1
 
-    print("="*50)
-    print(f"Pipeline Complete. {processed_count} arrays optimized and registered.")
+            except Exception as e:
+                logging.error(f"Pipeline failed for {filename}. Error: {e}")
+
+    logging.info(f"Pipeline Complete. {processed_count} arrays optimized and registered.")
 
 if __name__ == "__main__":
     main()

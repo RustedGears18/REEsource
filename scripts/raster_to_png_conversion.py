@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import rasterio
 from rasterio.warp import transform_bounds
@@ -6,37 +7,46 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from google.oauth2 import service_account
 from google.cloud import storage, firestore
 
+# Allow the script to import from the root 'src' directory
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.config import PROJECT_ID, logging
+
 # --- GCP Configuration ---
-PROJECT_ID = "reesource"
 BUCKET_NAME = "reesource-data-raw"
-CREDENTIALS_FILE = "reesource-d2eb4118beff.json"
+# Adjust this if your files are currently sitting at the root of the bucket
+SOURCE_PREFIX = "surveys/raw_tifs/" 
+DEST_PREFIX = "surveys/web_pngs/"
 
 def get_gcp_clients():
-    creds = service_account.Credentials.from_service_account_file(CREDENTIALS_FILE)
-    storage_client = storage.Client(credentials=creds, project=PROJECT_ID)
-    firestore_client = firestore.Client(credentials=creds, project=PROJECT_ID)
+    """Initializes the GCP clients leveraging the centralized environment (.env)."""
+    storage_client = storage.Client(project=PROJECT_ID)
+    firestore_client = firestore.Client(project=PROJECT_ID)
     return storage_client, firestore_client
 
 def process_and_upload_raster(doc_id, meta, storage_client, firestore_client, fallback_bounds=None):
     bucket = storage_client.bucket(BUCKET_NAME)
-    tif_blob = bucket.blob(meta["filename"])
     
+    # Construct full bucket paths
+    tif_blob_path = f"{SOURCE_PREFIX}{meta['filename']}"
     png_filename = meta["filename"].replace('.tif', '.png')
-    png_blob = bucket.blob(png_filename)
+    png_blob_path = f"{DEST_PREFIX}{png_filename}"
+    
+    tif_blob = bucket.blob(tif_blob_path)
+    png_blob = bucket.blob(png_blob_path)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         local_tif = os.path.join(temp_dir, meta["filename"])
         local_png = os.path.join(temp_dir, png_filename)
         
         # 1. Download TIF from Bucket
-        print(f"Downloading {meta['filename']} from bucket...")
+        logging.info(f"Downloading {tif_blob_path} from bucket...")
         tif_blob.download_to_filename(local_tif)
         
         # 2. Convert to PNG & Extract Bounds
-        print(f"Processing spatial data for {doc_id}...")
+        logging.info(f"Processing spatial data for {doc_id}...")
         with rasterio.open(local_tif) as src:
             try:
                 left, bottom, right, top = transform_bounds(src.crs, 'EPSG:4326', *src.bounds)
@@ -47,10 +57,7 @@ def process_and_upload_raster(doc_id, meta, storage_client, firestore_client, fa
                 else:
                     raise ValueError(f"Missing CRS in {meta['filename']} and no fallback bounds.")
             
-            band1 = src.read(1)
-            nodata = src.nodata
-            mask = (band1 == nodata) | np.isnan(band1) if nodata is not None else np.isnan(band1)
-            # --- New Aggressive Mask ---
+            # --- Aggressive Mask ---
             band1 = src.read(1)
             nodata = src.nodata
 
@@ -72,9 +79,9 @@ def process_and_upload_raster(doc_id, meta, storage_client, firestore_client, fa
             plt.imsave(local_png, rgba_image)
         
         # 3. Upload PNG back to Bucket
-        print(f"Uploading {png_filename} to bucket...")
+        logging.info(f"Uploading {png_filename} to bucket at {png_blob_path}...")
         png_blob.upload_from_filename(local_png)
-        png_blob.make_public() # Ensure Streamlit can read the URL
+        png_blob.make_public() 
         
         # 4. Update Firestore with new bounds and PNG URL
         public_url = png_blob.public_url
@@ -82,11 +89,11 @@ def process_and_upload_raster(doc_id, meta, storage_client, firestore_client, fa
         
         payload = {
             "image_url": public_url,
-            "bounds": pydeck_bounds, # This is what PyDeck was missing!
+            "bounds": pydeck_bounds, 
             "processing_status": "PNG_Ready"
         }
         doc_ref.set(payload, merge=True)
-        print(f"✅ Updated Firestore document: {doc_id}\n")
+        logging.info(f"✅ Updated Firestore document: {doc_id}\n")
         
         return pydeck_bounds
 
@@ -106,4 +113,4 @@ if __name__ == "__main__":
         if master_bounds is None:
             master_bounds = bounds
             
-    print("--- Pipeline Execution Complete ---")
+    logging.info("--- PNG Conversion Pipeline Execution Complete ---")

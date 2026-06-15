@@ -1,9 +1,6 @@
 # Use an official lightweight Python runtime
 FROM python:3.11-slim
 
-# Set the system port environment variable for Cloud Run compliance
-EXPOSE 8080
-
 # Establish the internal working directory
 WORKDIR /app
 
@@ -13,5 +10,5 @@ COPY . .
 # Install production dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Launch Streamlit bound to Cloud Run's required port and host settings
-ENTRYPOINT ["streamlit", "run", "dashboard.py", "--server.port=8080", "--server.address=0.0.0.0"]
+# Launch the pipeline orchestrator
+ENTRYPOINT ["python", "pipeline_runner.py"]

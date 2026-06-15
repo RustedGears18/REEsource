@@ -16,10 +16,10 @@ COLLECTION_NAME = 'ree_targets'
 
 # Data Paths
 FILE_PATHS = {
-    'U': 'data/CO_MID_u.tif',
-    'Th': 'data/CO_MID_th.tif',
-    'K': 'data/CO_MID_k.tif',
-    'Mag': 'data/CO_MID_rtp.tif'
+    'U': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_u.tif',
+    'Th': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_th.tif',
+    'K': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_k.tif',
+    'Mag': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_rtp.tif'
 }
 
 # Hyperparameters
