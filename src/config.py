@@ -35,22 +35,27 @@ else:
 
 # --- SMART HYPERPARAMETER SCALING ---
 
-# 1. Epsilon Scaling
-# Epsilon scales mathematically based on the max Euclidean distance: sqrt(d)
-# These base epsilons are tuned for 1D, and scale up as dimensions increase.
 base_epsilons = [0.0, 0.15, 0.25, 0.35]
-SEARCH_EPSILONS = [round(eps * math.sqrt(NUM_DIMS), 3) for eps in base_epsilons]
-
-# 2. Cluster Size Scaling
-# Cluster sizes scale inversely to dimensions. 
-# Fewer dimensions = higher density = larger required minimum clusters.
 SIZE_SCALER = {
-    4: range(20, 45, 5),   # 4D: Highly sparse, small clusters are significant
-    3: range(30, 60, 10),  # 3D: Moderate sparsity
-    2: range(50, 100, 15), # 2D: Getting dense
-    1: range(80, 160, 20)  # 1D: Highly dense, need large numbers to confirm true anomaly
+    4: range(20, 45, 5),
+    3: range(30, 60, 10),
+    2: range(50, 100, 15),
+    1: range(80, 160, 20)
 }
-SEARCH_SIZES = SIZE_SCALER[NUM_DIMS]
-DOWNSAMPLE_FACTOR = 2
 
+# Check for runtime environment variable overrides
+custom_sizes = os.getenv("CUSTOM_SIZES")
+custom_epsilons = os.getenv("CUSTOM_EPSILONS")
+
+if custom_sizes:
+    # Parse comma-separated string into a list of integers
+    SEARCH_SIZES = [int(x.strip()) for x in custom_sizes.split(",")]
+else:
+    SEARCH_SIZES = SIZE_SCALER[NUM_DIMS]
+
+if custom_epsilons:
+    # Parse comma-separated string into a list of floats
+    SEARCH_EPSILONS = [float(x.strip()) for x in custom_epsilons.split(",")]
+else:
+    SEARCH_EPSILONS = [round(eps * math.sqrt(NUM_DIMS), 3) for eps in base_epsilons]
 
