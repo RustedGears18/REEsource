@@ -10,15 +10,35 @@ st.set_page_config(page_title="REEsource Target Analytics", layout="wide", page_
 st.title("REEsource: Critical Mineral Anomaly Detection")
 st.markdown("Interactive exploration of geospatial HDBSCAN clusters highlighting multi-dimensional REE signatures.")
 
-with st.spinner("Initializing geospatial data warehouse..."):
-    master_geojson = load_all_targets()
+# --- Sidebar Controls (Data Pipeline Source) ---
+st.sidebar.header("Data Pipeline Source")
+
+collection_map = {
+    "Master Composite (4D)": "target_zones_master",
+    "Uranium Isolated (1D)": "target_zones_U",
+    "Thorium Isolated (1D)": "target_zones_Th",
+    "Potassium Isolated (1D)": "target_zones_K",
+    "Magnetic Isolated (1D)": "target_zones_Mag"
+}
+
+selected_source_label = st.sidebar.selectbox(
+    "Select Active Detection Model", 
+    list(collection_map.keys()), 
+    index=0
+)
+target_collection = collection_map[selected_source_label]
+
+with st.spinner(f"Fetching clusters from {target_collection}..."):
+    # Pass the selected collection to your data fetcher
+    master_geojson = load_all_targets(target_collection)
     raster_assets = load_cmb_mid_rasters()
 
 if not master_geojson['features'] and not raster_assets:
-    st.error("Data pipeline connection failed or no assets discovered.")
+    st.error(f"Data pipeline connection failed or no assets discovered in {target_collection}.")
     st.stop()
 
-# --- Sidebar Controls ---
+# --- Sidebar Controls (Map Config) ---
+st.sidebar.divider()
 st.sidebar.header("Map Configuration")
 
 map_styles = {
@@ -65,7 +85,7 @@ layers, feature_count, layer_type = generate_map_layers(
 )
 
 if layer_type == "vector":
-    st.sidebar.success(f"**{feature_count}** Target Anomaly Zones isolated.")
+    st.sidebar.success(f"**{feature_count}** Target Anomaly Zones isolated from {selected_source_label}.")
 elif layer_type == "raster":
     st.sidebar.success("Selected Raster Overlay active.")
 
@@ -73,9 +93,9 @@ elif layer_type == "raster":
 view_state = pdk.ViewState(
     latitude=38.2645,
     longitude=-107.0778, 
-    zoom=10.0, 
-    min_zoom=5.0,   
-    max_zoom=12.0
+    zoom=12.0, 
+    min_zoom=4.0,   
+    max_zoom=15.0
 )
 
 st.pydeck_chart(pdk.Deck(
@@ -93,7 +113,8 @@ st.pydeck_chart(pdk.Deck(
                 "<b>Potassium:</b> {mean_K_pct} % <br/>"
                 "<b>Magnetics:</b> {mean_Mag_nT} nT <br/>"
                 "<br/>"
-                "<b>Run Specs:</b> Min Size {min_cluster_size} | ε {epsilon}",
+                "<b>Run Specs:</b> Min Size {min_cluster_size} | ε {epsilon}<br/>"
+                "<b>DBCV Score:</b> {dbcv_score}",
         "style": {"backgroundColor": "#333333", "color": "white", "font-family": "sans-serif"}
     }
 ))
