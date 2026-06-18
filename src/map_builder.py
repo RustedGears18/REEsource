@@ -1,6 +1,6 @@
 import pydeck as pdk
 
-def generate_map_layers(selected_layer_label, hd_run_map, raster_run_map, master_geojson):
+def generate_map_layers(selected_layer_label, hd_run_map, raster_run_map, master_geojson, raster_opacity=0.5):
     layers = []
 
     if selected_layer_label in hd_run_map:
@@ -15,7 +15,7 @@ def generate_map_layers(selected_layer_label, hd_run_map, raster_run_map, master
         layers.append(pdk.Layer(
             "GeoJsonLayer",
             data=filtered_geojson,
-            opacity=0.65, 
+            opacity=0.75, 
             stroked=True,
             filled=True,
             extruded=True,  
@@ -42,8 +42,8 @@ def generate_map_layers(selected_layer_label, hd_run_map, raster_run_map, master
                 id="active_raster_overlay", 
                 image=url, 
                 bounds=bounds,
-                opacity=0.75,
-                pickable=False
+                opacity=raster_opacity,
+                pickable=True
             ))
             return layers, 1, "raster"
             
