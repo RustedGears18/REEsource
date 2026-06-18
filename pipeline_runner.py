@@ -30,9 +30,12 @@ def main():
         # Log the shape to the terminal
         logging.info(f"📊 Final GeoDataFrame Shape for {dimension_string}: {gdf.shape[0]} rows, {gdf.shape[1]} columns")
         
-        # Create a clean sample (converting geometry to readable text format)
-        sample_df = gdf.head(100).copy()
-        sample_df['geometry'] = sample_df['geometry'].apply(lambda x: x.wkt) # Convert polygons to Well-Known Text
+        # Cast to a standard pandas DataFrame to prevent geometry warnings
+        sample_df = pd.DataFrame(gdf.head(100).copy())
+        
+        # Convert polygons to Well-Known Text strings
+        sample_df['geometry'] = sample_df['geometry'].apply(lambda x: x.wkt) 
+        
         sample_filename = f"target_sample_{dimension_string}.csv"
         sample_df.to_csv(sample_filename, index=False)
         
