@@ -15,9 +15,9 @@ def get_db():
     return firestore.Client(credentials=credentials, project=creds_dict["project_id"])
 
 @st.cache_data(ttl=86400, show_spinner=True) 
-def load_all_targets(collection_name='ree_targets'):
+def load_all_targets(target_collection):
     db = get_db()
-    docs = db.collection(collection_name).stream()
+    docs = db.collection(target_collection).stream()
     features = []
     
     for doc in docs:
