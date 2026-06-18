@@ -1,6 +1,7 @@
 import os, math
 import logging
 from dotenv import load_dotenv
+from datetime import datetime, timezone
 
 # Initialize environment and logging
 load_dotenv()
@@ -9,6 +10,9 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%H:%M:%S'
 )
+
+# Generate a single UTC timestamp for the entire pipeline execution
+RUN_TIMESTAMP = datetime.now(timezone.utc).isoformat()
 
 # GCP & Database Setup
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "reesource")
@@ -26,6 +30,9 @@ FILE_PATHS = {
 ACTIVE_DIMENSIONS = os.getenv("ACTIVE_DIMENSIONS", "U,Th,K,Mag").split(",")
 DOWNSAMPLE_FACTOR=2
 NUM_DIMS = len(ACTIVE_DIMENSIONS)
+
+# Catch the survey provenance tag
+SURVEY_SOURCE = os.getenv("SURVEY_SOURCE", "USGS_Earth_MRI_CO_MID_MINERAL_BELT")
 
 # Dynamically name the output collection
 if NUM_DIMS == 4:

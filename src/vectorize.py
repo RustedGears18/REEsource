@@ -3,7 +3,7 @@ import geopandas as gpd
 from rasterio.features import shapes
 from shapely.geometry import shape
 from scipy import stats
-from src.config import ACTIVE_DIMENSIONS, logging
+from src.config import ACTIVE_DIMENSIONS, SURVEY_SOURCE, RUN_TIMESTAMP, logging
 
 def vectorize_clusters(valid_df, best_labels, meta, new_transform, max_cluster_area, crs, best_size, best_epsilon, best_score):
     logging.info("Vectorizing optimal clusters and calculating spatial statistics...")
@@ -41,15 +41,18 @@ def vectorize_clusters(valid_df, best_labels, meta, new_transform, max_cluster_a
             
             bounds = poly_shape.bounds
             
+# 1. Define the base spatial metrics everyone gets
             poly_props = {
                 'geometry': poly_shape,
                 'cluster_id': int(value),
+                'survey_source': SURVEY_SOURCE,
+                'run_timestamp': RUN_TIMESTAMP,            # <-- NEW INJECTION
                 'min_cluster_size': best_size,
                 'epsilon': best_epsilon, 
                 'dbcv_score': round(float(best_score), 4),
-                'z_score': round(float(z_score), 3),       # New stat
-                'p_value': f"{float(p_value):.2e}",        # Formatted scientifically (e.g., 1.50e-04)
-                'primary_tested_dim': primary_dim,         # Track what we tested
+                'z_score': round(float(z_score), 3),       
+                'p_value': f"{float(p_value):.2e}",        
+                'primary_tested_dim': primary_dim,         
                 'width_km': round((bounds[2] - bounds[0]) / 1000, 2),
                 'height_km': round((bounds[3] - bounds[1]) / 1000, 2)
             }
@@ -66,4 +69,13 @@ def vectorize_clusters(valid_df, best_labels, meta, new_transform, max_cluster_a
 
     gdf = gpd.GeoDataFrame(all_polygons, crs=crs)
     gdf['geometry'] = gdf['geometry'].buffer(100, join_style=2).buffer(-100, join_style=2).simplify(tolerance=50, preserve_topology=True)
-    return gdf.to_crs("EPSG:4326")
+    
+    # Reproject to standard Lat/Lon (WGS84) for PyDeck
+    gdf = gdf.to_crs("EPSG:4326")
+    
+    # Now that it is in Lat/Lon, calculate the centroid of each polygon natively
+    # (Using the y-axis for Latitude and x-axis for Longitude)
+    gdf['center_lat'] = gdf.geometry.centroid.y
+    gdf['center_lon'] = gdf.geometry.centroid.x
+    
+    return gdf

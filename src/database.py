@@ -17,11 +17,15 @@ def push_to_firestore(gdf):
 # 1. Define the core payload
         payload = {
             'cluster_id': props['cluster_id'],
+            'survey_source': props.get('survey_source', 'Unknown'),  
+            'run_timestamp': props.get('run_timestamp'),  # <-- ADDED
+            'center_lat': props.get('center_lat'),        # <-- ADDED
+            'center_lon': props.get('center_lon'),        # <-- ADDED
             'min_cluster_size': props['min_cluster_size'],
             'epsilon': props['epsilon'], 
             'dbcv_score': props.get('dbcv_score'), 
-            'z_score': props.get('z_score'),              # Pushed to Firestore
-            'p_value': props.get('p_value'),              # Pushed to Firestore
+            'z_score': props.get('z_score'),              
+            'p_value': props.get('p_value'),              
             'primary_tested_dim': props.get('primary_tested_dim'),
             'width_km': props['width_km'],
             'height_km': props['height_km'],

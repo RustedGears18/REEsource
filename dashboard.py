@@ -109,6 +109,7 @@ st.pydeck_chart(pdk.Deck(
     initial_view_state=view_state,
     tooltip={
         "html": "<b>Cluster ID:</b> {cluster_id} <br/>"
+                "<b>Survey Source:</b> {survey_source} <br/>"
                 "<b>Dimensions:</b> ~{width_km} km x {height_km} km <br/>"
                 "<hr/>"
                 "<b>Uranium:</b> {mean_U_ppm} ppm <br/>"
