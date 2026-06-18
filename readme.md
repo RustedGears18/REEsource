@@ -2,9 +2,9 @@
 **Unearthing tomorrow's critical mineral supply.**
 
 ## Overview
-REEsource is an end-to-end data analytics and machine learning infrastructure designed to identify, cluster, and model Rare Earth Element (REE) and critical mineral deposits from acid mine drainage (AMD) residue and mineral deposits. 
+REEsource is an end-to-end data analytics and machine learning infrastructure designed to identify, cluster, and model Rare Earth Element (REE) and critical mineral deposits. 
 
-The core machine learning pipeline leverages an optimized HDBSCAN clustering engine running on Google Cloud Platform (GCP) to perform automated geospatial grid searches across multiple geophysical and radiometric dimensions (Uranium, Thorium, Potassium, and Residual Total Intensity Magnetic data).
+The core machine learning pipeline leverages an optimized HDBSCAN clustering engine running on Google Cloud Platform (GCP) to perform automated geospatial grid searches across multiple geophysical and radiometric dimensions (Uranium, Thorium, Potassium, and Reduced-To-Pole Magnetic density).
 
 ## Core Architecture & Features
 
