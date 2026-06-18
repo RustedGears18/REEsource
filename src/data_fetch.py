@@ -27,9 +27,27 @@ def load_all_targets(target_collection):
             continue
             
         geom = json.loads(data['geometry'])
-        u_val = data.get('mean_U_ppm', 0)
-        intensity = min(int((u_val / 20.0) * 255), 255) 
-        fill_color = [255, 255 - intensity, 0, 220] 
+# Extract values, allowing them to remain None if not in this collection
+        u_val = data.get('mean_U_ppm')
+        th_val = data.get('mean_Th_ppm')
+        k_val = data.get('mean_K_pct')
+        mag_val = data.get('mean_Mag_nT')
+
+        # Dynamically calculate intensity and color based on the active dimension
+        if u_val is not None:
+            intensity = min(int((u_val / 20.0) * 255), 255)
+            data['fill_color'] = [intensity, 0, 255 - intensity, 140]  # Purple/Red for Master & Uranium
+        elif th_val is not None:
+            intensity = min(int((th_val / 40.0) * 255), 255)
+            data['fill_color'] = [0, intensity, 255 - intensity, 140]  # Cyan for Thorium
+        elif k_val is not None:
+            intensity = min(int((k_val / 5.0) * 255), 255)
+            data['fill_color'] = [intensity, intensity, 0, 140]        # Yellow for Potassium
+        elif mag_val is not None:
+            intensity = min(int((abs(mag_val) / 500.0) * 255), 255)
+            data['fill_color'] = [100, 100, intensity, 140]            # Blue for Magnetics
+        else:
+            data['fill_color'] = [128, 128, 128, 140]                  # Fallback Gray 
         
         features.append({
             "type": "Feature",
