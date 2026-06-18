@@ -2,47 +2,30 @@
 **Unearthing tomorrow's critical mineral supply.**
 
 ## Overview
-This repository contains the foundational codebase for an end-to-end Python infrastructure designed to aggregate, analyze, and present Rare Earth Element (REE) and critical mineral feedstock data.
+REEsource is an end-to-end data analytics and machine learning infrastructure designed to identify, cluster, and model Rare Earth Element (REE) and critical mineral deposits. 
 
-Designed for researchers, developers, and business operators, this application models the viability of critical mineral supplies across the United States, defaulting to a strict REE profile while allowing exploration of all critical minerals. 
+The core machine learning pipeline leverages an optimized HDBSCAN clustering engine running on Google Cloud Platform (GCP) to perform automated geospatial grid searches across multiple geophysical and radiometric dimensions (Uranium, Thorium, Potassium, and Reduced-To-Pole Magnetic density).
 
-## Architecture & Features
-* **Interactive Dashboard:** Built with Streamlit, featuring dynamic geospatial mapping and a default UI toggle prioritizing REE filtering.
-* **Geological Baselines:** Processes and visualizes assay data targeting critical mineral deposits from legacy and active sites nationwide.
-* **Self-Healing References:** Implements dynamic query-generation to Mindat.org to prevent link-rot on legacy federal datasets, ensuring continuous access to deposit intelligence.
-* **Automated Data Ingestion:** A resilient Python ETL pipeline that dynamically resolves, downloads, and transforms the latest federal dataset from the USGS/Data.gov catalog.
-* **Cloud Database:** Integrates with Google Cloud Firestore (NoSQL) to cache and serve processed tracking records seamlessly to the frontend.
+## Core Architecture & Features
+
+* **Dynamic Dimensional Slicing:** Accepts runtime environment variables (`ACTIVE_DIMENSIONS`) to execute either the master 4D composite pipeline or individual dimension isolation studies (e.g., Uranium-only anomaly detection) without changing code.
+* **Smart Hyperparameter Scaling:** Context-aware hyperparameter engine that automatically rescales HDBSCAN `min_cluster_size` ranges and `cluster_selection_epsilon` boundaries based on the number of input dimensions to counter the Curse of Dimensionality.
+* **Automated Data Ingestion:** A resilient Python ETL layer that streams cloud-optimized GeoTIFFs (COGs) from Google Cloud Storage, unpacking and scaling raster arrays efficiently using a multi-gigabyte containerized architecture.
+* **Isolated Cloud Database Targets:** Dynamically partitions results into isolated Google Cloud Firestore NoSQL collections based on the active dimensions run (e.g., `target_zones_master` vs `target_zones_U`), preventing database cross-contamination during ablation runs.
+* **Interactive Frontend Dashboard:** Built with Streamlit and PyDeck, providing dynamic geospatial vector mapping, interactive filtering, and custom color-palette toggles for different target layers.
 
 ## Tech Stack
-* **Frontend:** Streamlit (`.streamlit/config.toml` customized), Folium
-* **Backend:** Python 3.x, Pandas, Requests
-* **Database:** Google Cloud Firestore
-* **Environment:** Compatible with Windows/PowerShell, macOS, and Linux
+* **Frontend:** Streamlit, PyDeck, Folium, Leafmap
+* **Machine Learning & Geospatial:** Scikit-learn, HDBSCAN, Rasterio, Xarray, NumPy, Pandas
+* **Cloud Infrastructure:** Google Cloud Run Jobs, Cloud Build, Cloud Storage, Cloud Firestore
+* **Environment & Tools:** Docker (Debian-slim base optimized with GDAL/Expat C-libraries), PowerShell v7, Bash
 
-## Local Development Setup
-To run this dashboard locally:
+---
 
-1. Clone the repository:
-   ```bash
-   git clone [https://github.com/RustedGears18/REEsource.git](https://github.com/RustedGears18/REEsource.git)
-   cd REEsource
-   ```
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv .venv
-   # Windows
-   .\.venv\Scripts\Activate.ps1
-   # macOS/Linux
-   source .venv/bin/activate
-   ```
-3. Install the required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Set up your environment variables:
-   * Create a `.env` file in the root directory.
-   * Add your Google Cloud service account JSON path: `GOOGLE_APPLICATION_CREDENTIALS="path/to/your/key.json"`
-5. Run the application:
-   ```bash
-   streamlit run dashboard.py
-   ```
+## Production Deployment
+
+### 1. Build and Push Container Image
+The container relies on system-level XML and GDAL dependencies to compile `rasterio` successfully. Use Google Cloud Build to compile and tag the production container safely in the cloud registry:
+
+```powershell
+gcloud builds submit --tag gcr.io/reesource/pipeline-job
