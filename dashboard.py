@@ -22,12 +22,22 @@ collection_map = {
     "Magnetic Isolated (1D)": "target_zones_Mag"
 }
 
+# Map detection models to their respective filename/ID sub-strings for filtering rasters
+dimension_filter_map = {
+    "Master Composite (4D)": None,       # Show everything
+    "Uranium Isolated (1D)": "uranium",
+    "Thorium Isolated (1D)": "thorium",
+    "Potassium Isolated (1D)": "potassium",
+    "Magnetic Isolated (1D)": "magnet"
+}
+
 selected_source_label = st.sidebar.selectbox(
     "Select Active Detection Model", 
     list(collection_map.keys()), 
     index=0
 )
 target_collection = collection_map[selected_source_label]
+active_filter_token = dimension_filter_map[selected_source_label]
 
 with st.spinner(f"Fetching clusters from {target_collection}..."):
     master_geojson = load_all_targets(target_collection)
@@ -56,7 +66,7 @@ current_map_style = map_styles[selected_style_name]
 st.sidebar.divider()
 st.sidebar.header("Layer Directory")
 
-# Opacity slider updated to 0.1 default
+# Opacity slider default matching your 0.1 preference
 raster_opacity = st.sidebar.slider("Raster Overlay Opacity", min_value=0.0, max_value=1.0, value=0.1, step=0.05)
 
 # Compile Metadata Options
@@ -77,8 +87,12 @@ for r in unique_runs:
     vector_options.append(label)
     hd_run_map[label] = r
 
-# Build Raster Options
+# Build Raster Options with Contextual Filtering
 for asset_id, data in raster_assets.items():
+    # If a specific 1D dimension filter is active, skip assets that don't match the keyword
+    if active_filter_token and active_filter_token not in asset_id.lower():
+        continue
+        
     display_name = data.get('name', asset_id.replace('_', ' ').title())
     label = display_name
     raster_options.append(label)
@@ -107,7 +121,6 @@ view_state = pdk.ViewState(
     max_zoom=15.0
 )
 
-# Render PyDeck (removed api_keys to avoid version TypeErrors; Streamlit handles Mapbox auth natively)
 st.pydeck_chart(pdk.Deck(
     map_provider="mapbox",
     map_style=current_map_style, 
@@ -132,14 +145,12 @@ if master_geojson and master_geojson.get('features'):
     if properties_list:
         df_metrics = pd.DataFrame(properties_list)
         
-        # Safely determine core columns to prevent KeyErrors on legacy runs
         ideal_core_cols = ['cluster_id', 'survey_source', 'dbcv_score', 'z_score', 'p_value', 'primary_tested_dim']
         core_cols = [col for col in ideal_core_cols if col in df_metrics.columns]
         dynamic_cols = [col for col in df_metrics.columns if col not in core_cols and col not in ['geometry', 'fill_color']]
         
         df_metrics = df_metrics[core_cols + dynamic_cols]
         
-        # Removed hide_index=True to avoid version-conflict TypeErrors
         st.dataframe(
             df_metrics,
             use_container_width=True,
