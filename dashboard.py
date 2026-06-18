@@ -79,9 +79,12 @@ for asset_id, data in raster_assets.items():
 
 selected_layer_label = st.sidebar.selectbox("Select Active Display Layer", options=dropdown_options)
 
-# --- Process Layers ---
+# Add the opacity slider
+raster_opacity = st.sidebar.slider("Raster Overlay Opacity", min_value=0.0, max_value=1.0, value=0.6, step=0.05)
+
+# Pass the opacity variable into your map builder function
 layers, feature_count, layer_type = generate_map_layers(
-    selected_layer_label, hd_run_map, raster_run_map, master_geojson
+    selected_layer_label, hd_run_map, raster_run_map, master_geojson, raster_opacity
 )
 
 if layer_type == "vector":
@@ -112,9 +115,11 @@ st.pydeck_chart(pdk.Deck(
                 "<b>Thorium:</b> {mean_Th_ppm} ppm <br/>"
                 "<b>Potassium:</b> {mean_K_pct} % <br/>"
                 "<b>Magnetics:</b> {mean_Mag_nT} nT <br/>"
-                "<br/>"
+                "<hr/>"
                 "<b>Run Specs:</b> Min Size {min_cluster_size} | ε {epsilon}<br/>"
-                "<b>DBCV Score:</b> {dbcv_score}",
+                "<b>DBCV Score:</b> {dbcv_score}<br/>"
+                "<b>Z-Score ({primary_tested_dim}):</b> {z_score}<br/>"
+                "<b>P-Value:</b> {p_value}",
         "style": {"backgroundColor": "#333333", "color": "white", "font-family": "sans-serif"}
     }
 ))

@@ -14,19 +14,25 @@ def push_to_firestore(gdf):
         doc_id = f"target_size{props['min_cluster_size']}_eps{props['epsilon']}_id{props['cluster_id']}"
         doc_ref = db.collection(COLLECTION_NAME).document(doc_id)
         
+# 1. Define the core payload
         payload = {
             'cluster_id': props['cluster_id'],
             'min_cluster_size': props['min_cluster_size'],
             'epsilon': props['epsilon'], 
-            'dbcv_score': props.get('dbcv_score'), # Injected DBCV Score
+            'dbcv_score': props.get('dbcv_score'), 
+            'z_score': props.get('z_score'),              # Pushed to Firestore
+            'p_value': props.get('p_value'),              # Pushed to Firestore
+            'primary_tested_dim': props.get('primary_tested_dim'),
             'width_km': props['width_km'],
             'height_km': props['height_km'],
-            'mean_U_ppm': props['mean_U'],
-            'mean_Th_ppm': props['mean_Th'],
-            'mean_K_pct': props['mean_K'],
-            'mean_Mag_nT': props['mean_Mag'],
             'geometry': json.dumps(feature['geometry']) 
         }
+        
+        # 2. Dynamically append assays only if they exist in the GeoJSON properties
+        if 'mean_U' in props: payload['mean_U_ppm'] = props['mean_U']
+        if 'mean_Th' in props: payload['mean_Th_ppm'] = props['mean_Th']
+        if 'mean_K' in props: payload['mean_K_pct'] = props['mean_K']
+        if 'mean_Mag' in props: payload['mean_Mag_nT'] = props['mean_Mag']
         
         batch.set(doc_ref, payload)
         count += 1
