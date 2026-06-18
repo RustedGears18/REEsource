@@ -53,8 +53,12 @@ map_styles = {
 selected_style_name = st.sidebar.selectbox("Basemap Style", list(map_styles.keys()), index=0)
 current_map_style = map_styles[selected_style_name]
 
+# --- Layer Directory ---
 st.sidebar.divider()
 st.sidebar.header("Layer Directory")
+
+# Add the opacity slider right here
+raster_opacity = st.sidebar.slider("Raster Overlay Opacity", min_value=0.0, max_value=1.0, value=0.6, step=0.05)
 
 # Compile Metadata Options
 unique_runs = list(set([
@@ -64,34 +68,38 @@ unique_runs = list(set([
 ]))
 unique_runs.sort(key=lambda x: (-x[0], x[1]))
 
-dropdown_options = []
 hd_run_map, raster_run_map = {}, {}
+vector_options = ["None"]
+raster_options = ["None"]
 
+# Build Vector Options
 for r in unique_runs:
     label = f"HDBSCAN: Size {r[0]} | ε {r[1]}"
-    dropdown_options.append(label)
+    vector_options.append(label)
     hd_run_map[label] = r
 
+# Build Raster Options
 for asset_id, data in raster_assets.items():
     display_name = data.get('name', asset_id.replace('_', ' ').title())
-    label = f"Raster Overlay: {display_name}"
-    dropdown_options.append(label)
+    label = display_name
+    raster_options.append(label)
     raster_run_map[label] = data
 
-selected_layer_label = st.sidebar.selectbox("Select Active Display Layer", options=dropdown_options)
+# --- The Independent Dropdowns ---
+selected_raster = st.sidebar.selectbox("1. Active Raster Overlay", options=raster_options)
+selected_vector = st.sidebar.selectbox("2. Active Target Zones", options=vector_options)
 
-# Add the opacity slider
-raster_opacity = st.sidebar.slider("Raster Overlay Opacity", min_value=0.0, max_value=1.0, value=0.6, step=0.05)
-
-# Pass the opacity variable into your map builder function
-layers, feature_count, layer_type = generate_map_layers(
-    selected_layer_label, hd_run_map, raster_run_map, master_geojson, raster_opacity
+# --- Process Layers ---
+# Pass BOTH selections into the map builder
+layers, feature_count = generate_map_layers(
+    selected_vector, selected_raster, hd_run_map, raster_run_map, master_geojson, raster_opacity
 )
 
-if layer_type == "vector":
+if selected_vector != "None":
     st.sidebar.success(f"**{feature_count}** Target Anomaly Zones isolated from {selected_source_label}.")
-elif layer_type == "raster":
-    st.sidebar.success("Selected Raster Overlay active.")
+if selected_raster != "None":
+    st.sidebar.info("Raster Overlay active.")
+
 
 # --- Render Map ---
 view_state = pdk.ViewState(
@@ -131,8 +139,6 @@ if master_geojson and master_geojson.get('features'):
         df_metrics = pd.DataFrame(properties_list)
         
         # Reorder the columns so the most important identifiers are on the left
-        # We use a list comprehension to grab remaining columns dynamically so we don't 
-        # break the app if a 1D run is missing 'mean_Th_ppm'
         core_cols = ['cluster_id', 'survey_source', 'dbcv_score', 'z_score', 'p_value', 'primary_tested_dim']
         dynamic_cols = [col for col in df_metrics.columns if col not in core_cols and col not in ['geometry', 'fill_color']]
         
