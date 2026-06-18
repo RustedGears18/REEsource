@@ -12,6 +12,8 @@ pydeck
 python-dotenv
 rasterio
 scikit-learn
+scipy
+shapely
 streamlit
 streamlit-folium
 tqdm
