@@ -24,6 +24,7 @@ FILE_PATHS = {
 
 # Catch the execution parameter, defaulting to the full 4D stack
 ACTIVE_DIMENSIONS = os.getenv("ACTIVE_DIMENSIONS", "U,Th,K,Mag").split(",")
+DOWNSAMPLE_FACTOR=2
 NUM_DIMS = len(ACTIVE_DIMENSIONS)
 
 # Dynamically name the output collection
