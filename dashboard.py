@@ -22,22 +22,12 @@ collection_map = {
     "Magnetic Isolated (1D)": "target_zones_Mag"
 }
 
-# Map detection models to their respective filename/ID sub-strings for filtering rasters
-dimension_filter_map = {
-    "Master Composite (4D)": None,       # Show everything
-    "Uranium Isolated (1D)": "uranium",
-    "Thorium Isolated (1D)": "thorium",
-    "Potassium Isolated (1D)": "potassium",
-    "Magnetic Isolated (1D)": "magnet"
-}
-
 selected_source_label = st.sidebar.selectbox(
     "Select Active Detection Model", 
     list(collection_map.keys()), 
     index=0
 )
 target_collection = collection_map[selected_source_label]
-active_filter_token = dimension_filter_map[selected_source_label]
 
 with st.spinner(f"Fetching clusters from {target_collection}..."):
     master_geojson = load_all_targets(target_collection)
@@ -66,7 +56,7 @@ current_map_style = map_styles[selected_style_name]
 st.sidebar.divider()
 st.sidebar.header("Layer Directory")
 
-# Opacity slider default matching your 0.1 preference
+# Opacity slider 
 raster_opacity = st.sidebar.slider("Raster Overlay Opacity", min_value=0.0, max_value=1.0, value=0.1, step=0.05)
 
 # Compile Metadata Options
@@ -87,12 +77,8 @@ for r in unique_runs:
     vector_options.append(label)
     hd_run_map[label] = r
 
-# Build Raster Options with Contextual Filtering
+# Build Raster Options (Unrestricted)
 for asset_id, data in raster_assets.items():
-    # If a specific 1D dimension filter is active, skip assets that don't match the keyword
-    if active_filter_token and active_filter_token not in asset_id.lower():
-        continue
-        
     display_name = data.get('name', asset_id.replace('_', ' ').title())
     label = display_name
     raster_options.append(label)

@@ -7,7 +7,7 @@ def generate_map_layers(selected_vector, selected_raster, hd_run_map, raster_run
     # 1. Build the Raster Layer FIRST (so it sits on the bottom)
     if selected_raster != "None":
         raster_data = raster_run_map[selected_raster]
-        raster_url = raster_data['url']
+        raster_url = raster_data['image_url']
         raster_bounds = raster_data['bounds']  
         
         raster_layer = pdk.Layer(

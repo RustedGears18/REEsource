@@ -7,16 +7,16 @@ from src.config import FILE_PATHS, DOWNSAMPLE_FACTOR, ACTIVE_DIMENSIONS, logging
 def load_and_scale_rasters():
     logging.info("Starting Ingestion & Preprocessing Phase.")
     meta = None
+    transform = None
+    crs = None
 
     # Filter the target paths based on the requested dimensions
     target_paths = {k: v for k, v in FILE_PATHS.items() if k in ACTIVE_DIMENSIONS}
     
     raster_data = {}
-    for name, path in target_paths.items():
-        logging.info(f"Loading raster: {name}")
-        # ... proceed with the existing rasterio.open() and flattening logic ...
-
-    for feature, path in FILE_PATHS.items():
+    
+    # Iterate ONLY over the filtered target paths
+    for feature, path in target_paths.items():
         logging.info(f"Loading raster: {feature}")
         with rasterio.open(path) as src:
             if meta is None:
@@ -47,7 +47,8 @@ def load_and_scale_rasters():
     valid_df = df.dropna().copy()
     
     scaler = StandardScaler()
-    features = ['U', 'Th', 'K', 'Mag']
-    scaled_data = scaler.fit_transform(valid_df[features])
+    
+    # Dynamically scale ONLY the active dimensions
+    scaled_data = scaler.fit_transform(valid_df[ACTIVE_DIMENSIONS])
     
     return valid_df, scaled_data, meta, crs, new_transform, max_cluster_area
