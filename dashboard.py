@@ -1,5 +1,6 @@
 import streamlit as st
 import pydeck as pdk
+import pandas as pd
 from src.data_fetch import load_all_targets, load_cmb_mid_rasters
 from src.map_builder import generate_map_layers
 
@@ -107,20 +108,42 @@ st.pydeck_chart(pdk.Deck(
     map_style=current_map_style, 
     layers=layers,
     initial_view_state=view_state,
+    # Inside your pdk.Deck definition...
     tooltip={
         "html": "<b>Cluster ID:</b> {cluster_id} <br/>"
-                "<b>Survey Source:</b> {survey_source} <br/>"
-                "<b>Dimensions:</b> ~{width_km} km x {height_km} km <br/>"
+                "<b>Target Area:</b> ~{width_km} km x {height_km} km <br/>"
                 "<hr/>"
-                "<b>Uranium:</b> {mean_U_ppm} ppm <br/>"
-                "<b>Thorium:</b> {mean_Th_ppm} ppm <br/>"
-                "<b>Potassium:</b> {mean_K_pct} % <br/>"
-                "<b>Magnetics:</b> {mean_Mag_nT} nT <br/>"
-                "<hr/>"
-                "<b>Run Specs:</b> Min Size {min_cluster_size} | ε {epsilon}<br/>"
-                "<b>DBCV Score:</b> {dbcv_score}<br/>"
-                "<b>Z-Score ({primary_tested_dim}):</b> {z_score}<br/>"
-                "<b>P-Value:</b> {p_value}",
-        "style": {"backgroundColor": "#333333", "color": "white", "font-family": "sans-serif"}
+                "<b>Primary Score (DBCV):</b> {dbcv_score}",
+        "style": {"backgroundColor": "#333333", "color": "white", "font-family": "sans-serif", "fontSize": "14px"}
     }
 ))
+
+# --- Detailed Metrics Data Grid ---
+st.divider()
+st.subheader("Target Zone Analytics")
+
+if master_geojson and master_geojson.get('features'):
+    # Extract just the properties (ignoring the complex geometry coordinates)
+    properties_list = [feature['properties'] for feature in master_geojson['features']]
+    
+    if properties_list:
+        # Convert to a DataFrame
+        df_metrics = pd.DataFrame(properties_list)
+        
+        # Reorder the columns so the most important identifiers are on the left
+        # We use a list comprehension to grab remaining columns dynamically so we don't 
+        # break the app if a 1D run is missing 'mean_Th_ppm'
+        core_cols = ['cluster_id', 'survey_source', 'dbcv_score', 'z_score', 'p_value', 'primary_tested_dim']
+        dynamic_cols = [col for col in df_metrics.columns if col not in core_cols and col not in ['geometry', 'fill_color']]
+        
+        df_metrics = df_metrics[core_cols + dynamic_cols]
+        
+        # Display as a highly interactive grid
+        st.dataframe(
+            df_metrics,
+            use_container_width=True,
+            hide_index=True,
+            height=300 # Keeps it contained so you can scroll the table independently
+        )
+else:
+    st.info("No target zone data available to display in the metrics table.")

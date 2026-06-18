@@ -1,6 +1,6 @@
 import pydeck as pdk
 
-def generate_map_layers(selected_layer_label, hd_run_map, raster_run_map, master_geojson, raster_opacity=0.5):
+def generate_map_layers(selected_layer_label, hd_run_map, raster_run_map, master_geojson, raster_opacity=0.1):
     layers = []
 
     if selected_layer_label in hd_run_map:
