@@ -30,7 +30,6 @@ selected_source_label = st.sidebar.selectbox(
 target_collection = collection_map[selected_source_label]
 
 with st.spinner(f"Fetching clusters from {target_collection}..."):
-    # Pass the selected collection to your data fetcher
     master_geojson = load_all_targets(target_collection)
     raster_assets = load_cmb_mid_rasters()
 
@@ -57,8 +56,8 @@ current_map_style = map_styles[selected_style_name]
 st.sidebar.divider()
 st.sidebar.header("Layer Directory")
 
-# Add the opacity slider right here
-raster_opacity = st.sidebar.slider("Raster Overlay Opacity", min_value=0.0, max_value=1.0, value=0.6, step=0.05)
+# Opacity slider updated to 0.1 default
+raster_opacity = st.sidebar.slider("Raster Overlay Opacity", min_value=0.0, max_value=1.0, value=0.1, step=0.05)
 
 # Compile Metadata Options
 unique_runs = list(set([
@@ -90,7 +89,6 @@ selected_raster = st.sidebar.selectbox("1. Active Raster Overlay", options=raste
 selected_vector = st.sidebar.selectbox("2. Active Target Zones", options=vector_options)
 
 # --- Process Layers ---
-# Pass BOTH selections into the map builder
 layers, feature_count = generate_map_layers(
     selected_vector, selected_raster, hd_run_map, raster_run_map, master_geojson, raster_opacity
 )
@@ -99,7 +97,6 @@ if selected_vector != "None":
     st.sidebar.success(f"**{feature_count}** Target Anomaly Zones isolated from {selected_source_label}.")
 if selected_raster != "None":
     st.sidebar.info("Raster Overlay active.")
-
 
 # --- Render Map ---
 view_state = pdk.ViewState(
@@ -110,13 +107,12 @@ view_state = pdk.ViewState(
     max_zoom=15.0
 )
 
+# Render PyDeck (removed api_keys to avoid version TypeErrors; Streamlit handles Mapbox auth natively)
 st.pydeck_chart(pdk.Deck(
-    api_keys={"mapbox": st.secrets["MAPBOX_API_KEY"]},
     map_provider="mapbox",
     map_style=current_map_style, 
     layers=layers,
     initial_view_state=view_state,
-    # Inside your pdk.Deck definition...
     tooltip={
         "html": "<b>Cluster ID:</b> {cluster_id} <br/>"
                 "<b>Target Area:</b> ~{width_km} km x {height_km} km <br/>"
@@ -131,25 +127,23 @@ st.divider()
 st.subheader("Target Zone Analytics")
 
 if master_geojson and master_geojson.get('features'):
-    # Extract just the properties (ignoring the complex geometry coordinates)
     properties_list = [feature['properties'] for feature in master_geojson['features']]
     
     if properties_list:
-        # Convert to a DataFrame
         df_metrics = pd.DataFrame(properties_list)
         
-        # Reorder the columns so the most important identifiers are on the left
-        core_cols = ['cluster_id', 'survey_source', 'dbcv_score', 'z_score', 'p_value', 'primary_tested_dim']
+        # Safely determine core columns to prevent KeyErrors on legacy runs
+        ideal_core_cols = ['cluster_id', 'survey_source', 'dbcv_score', 'z_score', 'p_value', 'primary_tested_dim']
+        core_cols = [col for col in ideal_core_cols if col in df_metrics.columns]
         dynamic_cols = [col for col in df_metrics.columns if col not in core_cols and col not in ['geometry', 'fill_color']]
         
         df_metrics = df_metrics[core_cols + dynamic_cols]
         
-        # Display as a highly interactive grid
+        # Removed hide_index=True to avoid version-conflict TypeErrors
         st.dataframe(
             df_metrics,
             use_container_width=True,
-            hide_index=True,
-            height=300 # Keeps it contained so you can scroll the table independently
+            height=300
         )
 else:
     st.info("No target zone data available to display in the metrics table.")
