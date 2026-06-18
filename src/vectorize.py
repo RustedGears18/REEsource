@@ -67,15 +67,21 @@ def vectorize_clusters(valid_df, best_labels, meta, new_transform, max_cluster_a
     if not all_polygons:
         raise ValueError("No valid geometries remained after area rejection.")
 
+    # ... previous code ...
     gdf = gpd.GeoDataFrame(all_polygons, crs=crs)
     gdf['geometry'] = gdf['geometry'].buffer(100, join_style=2).buffer(-100, join_style=2).simplify(tolerance=50, preserve_topology=True)
     
-    # Reproject to standard Lat/Lon (WGS84) for PyDeck
-    gdf = gdf.to_crs("EPSG:4326")
+    # 1. Calculate centroids while still in the flat native projection (meters)
+    native_centroids = gdf.geometry.centroid
     
-    # Now that it is in Lat/Lon, calculate the centroid of each polygon natively
-    # (Using the y-axis for Latitude and x-axis for Longitude)
-    gdf['center_lat'] = gdf.geometry.centroid.y
-    gdf['center_lon'] = gdf.geometry.centroid.x
+    # 2. Project just those center points to Lat/Lon (EPSG:4326)
+    centroids_4326 = native_centroids.to_crs("EPSG:4326")
+    
+    # 3. Extract the actual Lat/Lon coordinates
+    gdf['center_lat'] = centroids_4326.y
+    gdf['center_lon'] = centroids_4326.x
+    
+    # 4. Finally, reproject the actual polygon boundaries to Lat/Lon for the web map
+    gdf = gdf.to_crs("EPSG:4326")
     
     return gdf
