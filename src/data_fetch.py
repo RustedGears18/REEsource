@@ -62,7 +62,7 @@ def load_all_targets(target_collection):
                 "mean_Th_ppm": data.get('mean_Th_ppm'),
                 "mean_K_pct": data.get('mean_K_pct'),
                 "mean_Mag_nT": data.get('mean_Mag_nT'),
-                "fill_color": fill_color
+                "fill_color": data['fill_color']
             }
         })
     return {"type": "FeatureCollection", "features": features}
