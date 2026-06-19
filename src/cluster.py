@@ -8,11 +8,11 @@ from src.config import SEARCH_SIZES, SEARCH_EPSILONS, NUM_DIMS, logging, PROJECT
 def run_grid_search(scaled_data):
     logging.info("Starting HDBSCAN Autonomous Auto-Tuning Phase...")
     
-    # 1. The Ideal Targets (Triggers the fallback loop if not met)
-    TARGET_DBCV = 0.75 if NUM_DIMS == 4 else 0.05
+    # 1. The Ideal Targets (Must be higher than the floor)
+    TARGET_DBCV = 0.95 if NUM_DIMS == 4 else 0.50
     
     # 2. The Hard Floors (Triggers a pipeline rejection if not met after all retries)
-    ABSOLUTE_MIN_DBCV = 0.40 if NUM_DIMS == 4 else 0.01 
+    ABSOLUTE_MIN_DBCV = 0.90 if NUM_DIMS == 4 else 0.30 
     
     MAX_RETRIES = 3
     
@@ -36,11 +36,16 @@ def run_grid_search(scaled_data):
         iteration_best_score = -1.0
         
         for min_size in current_sizes:
+            
+            # Dynamically scale min_samples to prevent core distance conflicts
+            # Keeps samples at exactly 50% of the cluster size, but never drops below 5
+            dynamic_min_samples = max(5, min_size // 2)
+            
             for current_epsilon in current_epsilons:
                 
                 clusterer = hdbscan.HDBSCAN(
                     min_cluster_size=min_size, 
-                    min_samples=15, 
+                    min_samples=dynamic_min_samples,   # <-- Dynamic injection
                     metric='euclidean', 
                     core_dist_n_jobs=6,
                     cluster_selection_epsilon=current_epsilon,
