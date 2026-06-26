@@ -85,8 +85,15 @@ for asset_id, data in raster_assets.items():
     raster_run_map[label] = data
 
 # --- The Independent Dropdowns ---
-selected_raster = st.sidebar.selectbox("1. Active Raster Overlay", options=raster_options)
-selected_vector = st.sidebar.selectbox("2. Active Target Zones", options=vector_options)
+# 1. Safely find the index for the default Raster Overlay, fallback to 0 ("None") if not found
+default_raster_name = "Equivalent Thorium (Th)"
+raster_idx = raster_options.index(default_raster_name) if default_raster_name in raster_options else 0
+selected_raster = st.sidebar.selectbox("1. Active Raster Overlay", options=raster_options, index=raster_idx)
+
+# 2. Safely find the index for the default Target Zone, fallback to 0 ("None") if not found
+default_vector_name = "HDBSCAN: Size 25 | ε 0.2"
+vector_idx = vector_options.index(default_vector_name) if default_vector_name in vector_options else 0
+selected_vector = st.sidebar.selectbox("2. Active Target Zones", options=vector_options, index=vector_idx)
 
 # --- Process Layers ---
 layers, feature_count = generate_map_layers(
@@ -131,9 +138,13 @@ if master_geojson and master_geojson.get('features'):
     if properties_list:
         df_metrics = pd.DataFrame(properties_list)
         
+        # dbcv_score is already here, so it will automatically sort to the front!
         ideal_core_cols = ['cluster_id', 'survey_source', 'dbcv_score', 'z_score', 'p_value', 'primary_tested_dim']
         core_cols = [col for col in ideal_core_cols if col in df_metrics.columns]
-        dynamic_cols = [col for col in df_metrics.columns if col not in core_cols and col not in ['geometry', 'fill_color']]
+        
+        # Added width_km and height_km to the exclusion list here
+        cols_to_exclude = ['geometry', 'fill_color', 'width_km', 'height_km']
+        dynamic_cols = [col for col in df_metrics.columns if col not in core_cols and col not in cols_to_exclude]
         
         df_metrics = df_metrics[core_cols + dynamic_cols]
         
@@ -142,5 +153,7 @@ if master_geojson and master_geojson.get('features'):
             use_container_width=True,
             height=300
         )
+else:
+    st.info("No target zone data available to display in the metrics table.")
 else:
     st.info("No target zone data available to display in the metrics table.")

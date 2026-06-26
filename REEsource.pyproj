@@ -4,8 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>0a885820-d661-47dc-9a5a-8480c1aee26b</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>
-    </StartupFile>
+    <StartupFile>scripts\non_dbcv_deletion_script.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -41,6 +40,7 @@
     <Compile Include="pipeline_runner.py" />
     <Compile Include="scripts\delete_firestore_objects.py" />
     <Compile Include="scripts\ingest_rasters.py" />
+    <Compile Include="scripts\non_dbcv_deletion_script.py" />
     <Compile Include="scripts\optimize_to_cog.py" />
     <Compile Include="scripts\patch_rasters.py" />
     <Compile Include="scripts\raster_to_png_conversion.py" />
