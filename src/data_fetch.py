@@ -26,14 +26,19 @@ def load_all_targets(target_collection):
         if cluster_id in [1, -1, '1', '-1']:
             continue
             
-        geom = json.loads(data['geometry'])
-# Extract values, allowing them to remain None if not in this collection
+        # 1. Pop the geometry string out of the data dictionary and load it
+        geom_str = data.pop('geometry', None)
+        if not geom_str:
+            continue
+        geom = json.loads(geom_str)
+
+        # Extract values for color logic (allowing them to remain None)
         u_val = data.get('mean_U_ppm')
         th_val = data.get('mean_Th_ppm')
         k_val = data.get('mean_K_pct')
         mag_val = data.get('mean_Mag_nT')
 
-        # Dynamically calculate intensity and color based on the active dimension
+        # 2. Dynamically calculate intensity and color based on the active dimension
         if u_val is not None:
             intensity = min(int((u_val / 20.0) * 255), 255)
             data['fill_color'] = [intensity, 0, 255 - intensity, 140]  # Purple/Red for Master & Uranium
@@ -49,22 +54,13 @@ def load_all_targets(target_collection):
         else:
             data['fill_color'] = [128, 128, 128, 140]                  # Fallback Gray 
         
+        # 3. Append the feature, passing the ENTIRE modified data dictionary as properties!
         features.append({
             "type": "Feature",
             "geometry": geom,
-            "properties": {
-                "cluster_id": data.get('cluster_id'),
-                "min_cluster_size": data.get('min_cluster_size'),
-                "epsilon": data.get('epsilon'), 
-                "width_km": data.get('width_km', 'N/A'),
-                "height_km": data.get('height_km', 'N/A'),
-                "mean_U_ppm": data.get('mean_U_ppm'),
-                "mean_Th_ppm": data.get('mean_Th_ppm'),
-                "mean_K_pct": data.get('mean_K_pct'),
-                "mean_Mag_nT": data.get('mean_Mag_nT'),
-                "fill_color": data['fill_color']
-            }
+            "properties": data 
         })
+        
     return {"type": "FeatureCollection", "features": features}
 
 @st.cache_data(ttl=86400, show_spinner=False)

@@ -8,43 +8,48 @@ cred = credentials.Certificate(r"C:\Users\ryates087\source\repos\REEsource\reeso
 firebase_admin.initialize_app(cred)
 
 db = firestore.client()
-
-def cleanup_ree_targets():
-    collection_ref = db.collection('ree_targets')
+def cleanup_all_dashboard_targets():
+    # The collections used by the Streamlit dashboard
+    collections = [
+        'target_zones_master',
+        'target_zones_U',
+        'target_zones_Th',
+        'target_zones_K',
+        'target_zones_Mag'
+    ]
+    
     field_to_check = 'dbcv_score'
-    batch_size = 400 # Firestore limits batches to 500 operations
+    batch_size = 400 
     
-    print(f"Scanning collection for missing '{field_to_check}' fields...")
-    
-    # Use stream() for memory-efficient reading
-    docs = collection_ref.stream()
-    batch = db.batch()
-    
-    delete_count = 0
-    total_deleted = 0
-
-    for doc in docs:
-        doc_data = doc.to_dict()
+    for collection_name in collections:
+        collection_ref = db.collection(collection_name)
+        print(f"\n--- Scanning collection: {collection_name} ---")
         
-        # Check if the field is missing
-        if field_to_check not in doc_data:
-            batch.delete(doc.reference)
-            delete_count += 1
-            total_deleted += 1
+        docs = collection_ref.stream()
+        batch = db.batch()
+        
+        delete_count = 0
+        total_deleted = 0
 
-            # Commit the batch when it reaches the limit
-            if delete_count >= batch_size:
-                batch.commit()
-                print(f"Committed batch of {delete_count} deletes. Total deleted: {total_deleted}")
-                batch = db.batch() # Reset batch
-                delete_count = 0
+        for doc in docs:
+            doc_data = doc.to_dict()
+            
+            if field_to_check not in doc_data:
+                batch.delete(doc.reference)
+                delete_count += 1
+                total_deleted += 1
 
-    # Commit any remaining operations in the final batch
-    if delete_count > 0:
-        batch.commit()
-        print(f"Committed final batch of {delete_count} deletes. Total deleted: {total_deleted}")
+                if delete_count >= batch_size:
+                    batch.commit()
+                    print(f"Committed batch of {delete_count} deletes. Total deleted: {total_deleted}")
+                    batch = db.batch() 
+                    delete_count = 0
 
-    print("Cleanup complete.")
+        if delete_count > 0:
+            batch.commit()
+            print(f"Committed final batch of {delete_count} deletes. Total deleted: {total_deleted}")
+
+        print(f"Cleanup complete for {collection_name}.")
 
 if __name__ == "__main__":
-    cleanup_ree_targets()
+    cleanup_all_dashboard_targets()
