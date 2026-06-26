@@ -155,5 +155,3 @@ if master_geojson and master_geojson.get('features'):
         )
 else:
     st.info("No target zone data available to display in the metrics table.")
-else:
-    st.info("No target zone data available to display in the metrics table.")
