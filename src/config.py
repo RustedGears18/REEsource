@@ -20,10 +20,10 @@ COLLECTION_NAME = 'ree_targets'
 
 # Data Paths
 FILE_PATHS = {
-    'U': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_u.tif',
-    'Th': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_th.tif',
-    'K': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_k.tif',
-    'Mag': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_rtp.tif'
+    'U': 'gs://reesource-data-raw/surveys/raw_tifs/CO_NE_u.tif',
+    'Th': 'gs://reesource-data-raw/surveys/raw_tifs/CO_NE_th.tif',
+    'K': 'gs://reesource-data-raw/surveys/raw_tifs/CO_NE_k.tif',
+    'Mag': 'gs://reesource-data-raw/surveys/raw_tifs/CO_NE_rtp.tif'
 }
 
 # Catch the execution parameter, defaulting to the full 4D stack
@@ -32,7 +32,7 @@ DOWNSAMPLE_FACTOR=2
 NUM_DIMS = len(ACTIVE_DIMENSIONS)
 
 # Catch the survey provenance tag
-SURVEY_SOURCE = os.getenv("SURVEY_SOURCE", "USGS_Earth_MRI_CO_MID_MINERAL_BELT")
+SURVEY_SOURCE = os.getenv("SURVEY_SOURCE", "USGS_Earth_MRI_CO_NE_MINERAL_BELT")
 
 # Dynamically name the output collection
 if NUM_DIMS == 4:
