@@ -24,6 +24,13 @@ def main():
             valid_df, best_labels, meta, new_transform, max_area, crs, best_size, best_epsilon, best_score
         )
         
+        # --- THE DATABASE PROTECTION GATE ---
+        # Ensure we have data, sort by the highest z_score, and keep only the top 100
+        if not gdf.empty and 'z_score' in gdf.columns:
+            logging.info(f"Filtering down from {len(gdf)} total anomalies to the Top 100...")
+            gdf = gdf.sort_values(by='z_score', ascending=False).head(100)
+            logging.info("✅ Top 100 target threshold applied.")
+
         # --- ACADEMIC LOGGING INTERCEPT ---
         dimension_string = "_".join(ACTIVE_DIMENSIONS)
         
