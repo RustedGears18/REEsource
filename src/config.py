@@ -18,13 +18,21 @@ RUN_TIMESTAMP = datetime.now(timezone.utc).isoformat()
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "reesource")
 COLLECTION_NAME = 'ree_targets'
 
-# Data Paths
+# --- DYNAMIC REGION ROUTING ---
+# Catch the region prefix, defaulting to CO_MID if none is provided
+REGION_PREFIX = os.getenv("REGION_PREFIX", "CO_MID")
+
+# Dynamically construct the Google Cloud Storage paths
 FILE_PATHS = {
-    'U': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_u.tif',
-    'Th': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_th.tif',
-    'K': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_k.tif',
-    'Mag': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_rtp.tif'
+    'U': f'gs://reesource-data-raw/surveys/raw_tifs/{REGION_PREFIX}_u.tif',
+    'Th': f'gs://reesource-data-raw/surveys/raw_tifs/{REGION_PREFIX}_th.tif',
+    'K': f'gs://reesource-data-raw/surveys/raw_tifs/{REGION_PREFIX}_k.tif',
+    'Mag': f'gs://reesource-data-raw/surveys/raw_tifs/{REGION_PREFIX}_rtp.tif'
 }
+
+# Dynamically set the survey source metadata tag
+default_survey = f"USGS_Earth_MRI_{REGION_PREFIX}_MINERAL_BELT"
+SURVEY_SOURCE = os.getenv("SURVEY_SOURCE", default_survey)
 
 # Catch the execution parameter, defaulting to the full 4D stack
 ACTIVE_DIMENSIONS = os.getenv("ACTIVE_DIMENSIONS", "U,Th,K,Mag").split(",")
