@@ -2,16 +2,16 @@ import hdbscan
 import numpy as np
 import pandas as pd
 import gc
+import os
 from google.cloud import storage
 from src.config import SEARCH_SIZES, SEARCH_EPSILONS, NUM_DIMS, logging, PROJECT_ID
 
 def run_grid_search(scaled_data):
     logging.info("Starting HDBSCAN Autonomous Auto-Tuning Phase...")
     
-    # In cluster.py
-    # Restored strict thresholds for the Mid-block profile
-    TARGET_DBCV = 0.95 if NUM_DIMS == 4 else 0.50
-    ABSOLUTE_MIN_DBCV = 0.90 if NUM_DIMS == 4 else 0.30
+    # Inside run_grid_search(scaled_data):
+    TARGET_DBCV = float(os.getenv("TARGET_DBCV", 0.95))
+    ABSOLUTE_MIN_DBCV = float(os.getenv("MIN_DBCV", 0.90))
     
     MAX_RETRIES = 3
     
