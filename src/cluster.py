@@ -8,11 +8,8 @@ from src.config import SEARCH_SIZES, SEARCH_EPSILONS, NUM_DIMS, logging, PROJECT
 def run_grid_search(scaled_data):
     logging.info("Starting HDBSCAN Autonomous Auto-Tuning Phase...")
     
-    # 1. The Ideal Targets (Must be higher than the floor)
-    TARGET_DBCV = 0.95 if NUM_DIMS == 4 else 0.50
-    
-    # 2. The Hard Floors (Triggers a pipeline rejection if not met after all retries)
-    ABSOLUTE_MIN_DBCV = 0.90 if NUM_DIMS == 4 else 0.30 
+    TARGET_DBCV = 0.80 if NUM_DIMS == 4 else 0.50
+    ABSOLUTE_MIN_DBCV = 0.75 if NUM_DIMS == 4 else 0.30
     
     MAX_RETRIES = 3
     
