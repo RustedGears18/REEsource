@@ -41,14 +41,15 @@ else:
     dimension_string = "_".join(ACTIVE_DIMENSIONS)
     COLLECTION_NAME = f"target_zones_{dimension_string}" 
 
-# --- SMART HYPERPARAMETER SCALING ---
+# Force higher epsilons to merge nearby tiny clusters together
+base_epsilons = [0.5, 1.0, 1.5, 2.0] 
 
-base_epsilons = [0.0, 0.15, 0.25, 0.35]
+# Drastically increase the minimum pixel sizes
 SIZE_SCALER = {
-    4: range(20, 45, 5),
-    3: range(30, 60, 10),
-    2: range(50, 100, 15),
-    1: range(80, 160, 20)
+    4: range(100, 350, 50), # Tests 100, 150, 200, 250, 300
+    3: range(150, 400, 50),
+    2: range(200, 500, 50),
+    1: range(250, 600, 50)
 }
 
 # Check for runtime environment variable overrides
