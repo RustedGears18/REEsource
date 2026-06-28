@@ -41,15 +41,15 @@ else:
     dimension_string = "_".join(ACTIVE_DIMENSIONS)
     COLLECTION_NAME = f"target_zones_{dimension_string}" 
 
-# Force higher epsilons to merge nearby tiny clusters together
-base_epsilons = [0.0, 0.3, 0.5, 0.7, 0.9] 
+# Tighter epsilons to allow for high-density cluster isolation
+base_epsilons = [0.0, 0.3, 0.5, 0.7] 
 
-# Drastically increase the minimum pixel sizes----test
+# Finer pixel sizes to catch the specific 0.98 DBCV geometry
 SIZE_SCALER = {
-    4: range(10, 20, 5), 
-    3: range(20, 30, 5),
-    2: range(30, 40 ,5),
-    1: range(40, 50, 5)
+    4: range(20, 45, 5),  # Tests 20, 25, 30, 35, 40
+    3: range(30, 55, 5),
+    2: range(40, 65, 5),
+    1: range(50, 75, 5)
 }
 
 # Check for runtime environment variable overrides

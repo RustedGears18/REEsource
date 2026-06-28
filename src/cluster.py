@@ -8,8 +8,10 @@ from src.config import SEARCH_SIZES, SEARCH_EPSILONS, NUM_DIMS, logging, PROJECT
 def run_grid_search(scaled_data):
     logging.info("Starting HDBSCAN Autonomous Auto-Tuning Phase...")
     
-    TARGET_DBCV = 0.80 if NUM_DIMS == 4 else 0.50
-    ABSOLUTE_MIN_DBCV = 0.75 if NUM_DIMS == 4 else 0.30
+    # In cluster.py
+    # Restored strict thresholds for the Mid-block profile
+    TARGET_DBCV = 0.95 if NUM_DIMS == 4 else 0.50
+    ABSOLUTE_MIN_DBCV = 0.90 if NUM_DIMS == 4 else 0.30
     
     MAX_RETRIES = 3
     
