@@ -44,7 +44,7 @@ else:
 # Force higher epsilons to merge nearby tiny clusters together
 base_epsilons = [0.5, 1.0, 1.5, 2.0] 
 
-# Drastically increase the minimum pixel sizes
+# Drastically increase the minimum pixel sizes----test
 SIZE_SCALER = {
     4: range(100, 350, 50), # Tests 100, 150, 200, 250, 300
     3: range(150, 400, 50),
