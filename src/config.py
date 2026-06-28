@@ -20,10 +20,10 @@ COLLECTION_NAME = 'ree_targets'
 
 # Data Paths
 FILE_PATHS = {
-    'U': 'gs://reesource-data-raw/surveys/raw_tifs/CO_NE_u.tif',
-    'Th': 'gs://reesource-data-raw/surveys/raw_tifs/CO_NE_th.tif',
-    'K': 'gs://reesource-data-raw/surveys/raw_tifs/CO_NE_k.tif',
-    'Mag': 'gs://reesource-data-raw/surveys/raw_tifs/CO_NE_rtp.tif'
+    'U': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_u.tif',
+    'Th': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_th.tif',
+    'K': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_k.tif',
+    'Mag': 'gs://reesource-data-raw/surveys/raw_tifs/CO_MID_rtp.tif'
 }
 
 # Catch the execution parameter, defaulting to the full 4D stack
@@ -32,7 +32,7 @@ DOWNSAMPLE_FACTOR=2
 NUM_DIMS = len(ACTIVE_DIMENSIONS)
 
 # Catch the survey provenance tag
-SURVEY_SOURCE = os.getenv("SURVEY_SOURCE", "USGS_Earth_MRI_CO_NE_MINERAL_BELT")
+SURVEY_SOURCE = os.getenv("SURVEY_SOURCE", "USGS_Earth_MRI_CO_MID_MINERAL_BELT")
 
 # Dynamically name the output collection
 if NUM_DIMS == 4:
@@ -42,14 +42,14 @@ else:
     COLLECTION_NAME = f"target_zones_{dimension_string}" 
 
 # Force higher epsilons to merge nearby tiny clusters together
-base_epsilons = [0.5, 1.0, 1.5, 2.0] 
+base_epsilons = [0.0, 0.3, 0.5, 0.7, 0.9] 
 
 # Drastically increase the minimum pixel sizes----test
 SIZE_SCALER = {
-    4: range(100, 350, 50), # Tests 100, 150, 200, 250, 300
-    3: range(150, 400, 50),
-    2: range(200, 500, 50),
-    1: range(250, 600, 50)
+    4: range(10, 20, 5), 
+    3: range(20, 30, 5),
+    2: range(30, 40 ,5),
+    1: range(40, 50, 5)
 }
 
 # Check for runtime environment variable overrides
