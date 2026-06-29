@@ -15,9 +15,12 @@ def get_db():
     return firestore.Client(credentials=credentials, project=creds_dict["project_id"])
 
 @st.cache_data(ttl=86400, show_spinner=True) 
-def load_all_targets(target_collection):
+def load_all_targets(target_collection, survey_source):
     db = get_db()
-    docs = db.collection(target_collection).stream()
+    
+    # Filter directly at the database level!
+    docs = db.collection(target_collection).where("survey_source", "==", survey_source).stream()
+    
     features = []
     
     for doc in docs:
@@ -62,6 +65,17 @@ def load_all_targets(target_collection):
         })
         
     return {"type": "FeatureCollection", "features": features}
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_region_rasters(active_region):
+    db = get_db()
+    docs = db.collection('raster_assets').stream()
+    assets = {}
+    for doc in docs:
+        # Dynamically check if 'co_mid' or 'co_ne' is in the asset name
+        if active_region.lower() in doc.id.lower():
+            assets[doc.id] = doc.to_dict()
+    return assets
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_cmb_mid_rasters():

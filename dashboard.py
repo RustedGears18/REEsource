@@ -1,8 +1,8 @@
 import streamlit as st
 import pydeck as pdk
 import pandas as pd
-from src.data_fetch import load_all_targets, load_cmb_mid_rasters
 from src.map_builder import generate_map_layers
+from src.data_fetch import load_all_targets, load_region_rasters
 
 # --- Page Config ---
 st.set_page_config(page_title="REEsource Target Analytics", layout="wide", page_icon="🌍")
@@ -29,9 +29,24 @@ selected_source_label = st.sidebar.selectbox(
 )
 target_collection = collection_map[selected_source_label]
 
+# --- New Sidebar Controls (Survey Region) ---
+st.sidebar.divider()
+st.sidebar.header("Survey Region")
+
+region_map = {
+    "Colorado Mineral Belt: MID Block": "CO_MID",
+    "Colorado Mineral Belt: NE Block": "CO_NE"
+}
+selected_region_label = st.sidebar.selectbox("Select Region", list(region_map.keys()), index=0)
+active_region = region_map[selected_region_label]
+
+# Dynamically construct the tag our database is looking for
+survey_source_tag = f"USGS_Earth_MRI_{active_region}_MINERAL_BELT"
+
 with st.spinner(f"Fetching clusters from {target_collection}..."):
-    master_geojson = load_all_targets(target_collection)
-    raster_assets = load_cmb_mid_rasters()
+    # Pass the variables into the backend
+    master_geojson = load_all_targets(target_collection, survey_source_tag)
+    raster_assets = load_region_rasters(active_region)
 
 if not master_geojson['features'] and not raster_assets:
     st.error(f"Data pipeline connection failed or no assets discovered in {target_collection}.")
@@ -106,10 +121,27 @@ if selected_raster != "None":
     st.sidebar.info("Raster Overlay active.")
 
 # --- Render Map ---
+# Default to Mid-block if no raster assets are found
+view_lat, view_lon = 38.2645, -107.0778 
+
+# Dynamically center the camera based on the loaded raster bounds
+if raster_assets:
+    try:
+        first_raster = list(raster_assets.values())[0]
+        bounds = first_raster['bounds']
+        
+        # Average all the longitudes and latitudes of the bounding box corners
+        all_lons = [pt[0] for pt in bounds]
+        all_lats = [pt[1] for pt in bounds]
+        view_lon = sum(all_lons) / len(all_lons)
+        view_lat = sum(all_lats) / len(all_lats)
+    except Exception as e:
+        st.sidebar.warning(f"Map centering fallback triggered.")
+
 view_state = pdk.ViewState(
-    latitude=38.2645,
-    longitude=-107.0778, 
-    zoom=12.0, 
+    latitude=view_lat,
+    longitude=view_lon, 
+    zoom=9.0,         # Zoomed out a bit more to fit the regional context
     min_zoom=4.0,   
     max_zoom=15.0
 )
